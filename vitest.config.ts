@@ -4,6 +4,11 @@ export default defineConfig({
   resolve: {
     conditions: ["@core/source"],
   },
+  ssr: {
+    resolve: {
+      conditions: ["@core/source"],
+    },
+  },
   test: {
     environment: "node",
     include: ["packages/*/test/**/*.test.ts", "examples/*/test/**/*.test.ts"],
