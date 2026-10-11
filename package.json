@@ -1,0 +1,27 @@
+{
+  "name": "core-monorepo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.11.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./packages/**\" build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "gate": "bash scripts/gate.sh"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.0",
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.0.0",
+    "eslint": "^10.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "~5.9.0",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "^5.0.0"
+  }
+}
