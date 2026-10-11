@@ -26,7 +26,7 @@ Children are delivered strictly in **sub-issue order**, which is the dependency 
 - The parent integration branch is `m<milestone>/<parent#>` (for example `m1/1`). The lead creates and pushes it from `main` before assigning.
 - Work in a parent integration worktree on that branch. Each child gets its own worktree and branch `m<milestone>/<child#>`, cut from the current parent tip.
 - One commit per child on the child branch, message `<child title>` plus `Refs #<child>` and `Refs #<parent>` (no closing keywords), plus the attribution trailer your harness requires. Then fast-forward the parent branch to it and run `pnpm gate` there.
-- **Cloud push rule (this repo only):** a cloud container is discarded, so push after each integrated child: `git push origin m1/<child#> m1/<parent#>`. Fast-forward pushes only. Never force-push, never push `main`, never open or merge PRs. If the environment forces a branch prefix (for example `claude/`), keep it, use it consistently, and name the actual branches in your comments.
+- **Cloud push rule (this repo only):** a cloud container is discarded, so push after each integrated child: `git push origin m<milestone>/<child#> m<milestone>/<parent#>`. Fast-forward pushes only. Never force-push, never push `main`, never open or merge PRs. If the environment forces a branch prefix (for example `claude/`), keep it, use it consistently, and name the actual branches in your comments.
 - Fixing an integrated child after `[lead] changes`: fast-forward the child branch to the parent tip, commit the fix there, fast-forward the parent again. Never rewrite pushed history.
 
 ## Gate
