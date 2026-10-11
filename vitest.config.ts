@@ -2,7 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   resolve: {
-    conditions: ["source"],
+    conditions: ["@core/source"],
   },
   test: {
     environment: "node",

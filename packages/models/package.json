@@ -4,7 +4,7 @@
   "type": "module",
   "exports": {
     ".": {
-      "source": "./src/index.ts",
+      "@core/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }

@@ -6,7 +6,7 @@
     "target": "ES2023",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "customConditions": ["source"],
+    "customConditions": ["@core/source"],
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
