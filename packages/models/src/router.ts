@@ -24,13 +24,20 @@ type AttemptContext = {
   step: RouteStep;
   timeoutMs: number;
   callerSignal: AbortSignal | undefined;
-  timeoutSignal: AbortSignal;
+  /** Aborted by the caller's signal or by the attempt's timer. */
   signal: AbortSignal;
+  timedOut: () => boolean;
+  /** Stops the timer; safe to call more than once. */
+  stopTimer: () => void;
 };
 
 /**
  * Tries an ordered list of models until one answers. Each attempt runs under its own timeout
  * combined with the caller's signal, so providers must honour `ChatOptions.signal`.
+ *
+ * In `chat` the timeout bounds the whole call. In `stream` it bounds only the wait for the first
+ * `text-delta` or `tool-call`: once content has started the timer is cleared and only the caller
+ * can end the attempt, because falling back is no longer possible by then.
  */
 export class ModelRouter {
   readonly #registry: ProviderRegistry;
@@ -65,6 +72,8 @@ export class ModelRouter {
         attempts.push({ model: step.model, ok: false, ms: elapsed(started), error: failure.toJSON() });
         if (NO_FALLBACK.has(failure.code)) throw failure;
         last = failure;
+      } finally {
+        context.stopTimer();
       }
     }
     throw allFailed(route.length, attempts, last);
@@ -105,7 +114,10 @@ export class ModelRouter {
             failure = CoreError.fromShape(event.error);
             break;
           }
-          if (event.type === "text-delta" || event.type === "tool-call") contentStarted = true;
+          if (event.type === "text-delta" || event.type === "tool-call") {
+            contentStarted = true;
+            context.stopTimer();
+          }
           yield event;
           if (event.type === "finish") {
             finished = true;
@@ -119,6 +131,8 @@ export class ModelRouter {
         }
       } catch (error) {
         failure = error;
+      } finally {
+        context.stopTimer();
       }
 
       if (finished) {
@@ -139,9 +153,22 @@ export class ModelRouter {
 
   #context(step: RouteStep, callerSignal: AbortSignal | undefined): AttemptContext {
     const timeoutMs = step.timeoutMs ?? this.#defaultTimeoutMs;
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    const signal = AbortSignal.any(callerSignal ? [callerSignal, timeoutSignal] : [timeoutSignal]);
-    return { step, timeoutMs, callerSignal, timeoutSignal, signal };
+    // Not `AbortSignal.timeout`: that timer cannot be cancelled, and `stream` must stop it.
+    const timer = new AbortController();
+    let timedOut = false;
+    const handle = setTimeout(() => {
+      timedOut = true;
+      timer.abort(new DOMException(`timed out after ${timeoutMs} ms`, "TimeoutError"));
+    }, timeoutMs);
+    const signal = AbortSignal.any(callerSignal ? [callerSignal, timer.signal] : [timer.signal]);
+    return {
+      step,
+      timeoutMs,
+      callerSignal,
+      signal,
+      timedOut: () => timedOut,
+      stopTimer: () => clearTimeout(handle),
+    };
   }
 }
 
@@ -173,7 +200,7 @@ function allFailed(count: number, attempts: Attempt[], last: CoreError | undefin
  * it: the caller's signal is `aborted`, the router's own timer is `timeout`.
  */
 function classify(error: unknown, context: AttemptContext): CoreError {
-  const { step, callerSignal, timeoutSignal, timeoutMs } = context;
+  const { step, callerSignal, timeoutMs } = context;
   const failure = CoreError.is(error)
     ? error
     : new CoreError("unknown", `${formatModelRef(step.model)}: unexpected failure`, {
@@ -184,7 +211,7 @@ function classify(error: unknown, context: AttemptContext): CoreError {
   if (callerSignal?.aborted) {
     return failure.code === "aborted" ? failure : abortedError();
   }
-  if (timeoutSignal.aborted) {
+  if (context.timedOut()) {
     return new CoreError("timeout", `${formatModelRef(step.model)} timed out after ${timeoutMs} ms`, {
       provider: step.model.provider,
     });
