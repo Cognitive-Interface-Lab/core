@@ -1,0 +1,14 @@
+{
+  "name": "@core/example-hello-gateway",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --conditions=@core/source --import tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/models": "workspace:*"
+  }
+}

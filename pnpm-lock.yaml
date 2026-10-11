@@ -194,6 +194,15 @@ importers:
         specifier: ^5.0.0
         version: 5.0.3(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.27.7)(tsx@4.23.15)(yaml@2.9.1))
 
+  examples/hello-gateway:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@core/models':
+        specifier: workspace:*
+        version: link:../../packages/models
+
   packages/contracts:
     dependencies:
       zod:
