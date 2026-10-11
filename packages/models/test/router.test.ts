@@ -73,6 +73,54 @@ function cutOffProvider(id: string, code: CoreErrorShape["code"]): ModelProvider
   return provider;
 }
 
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("aborted"));
+      },
+      { once: true },
+    );
+  });
+}
+
+const abortedEvent = (): StreamEvent => ({ type: "error", error: new CoreError("aborted", "stopped").toJSON() });
+
+/**
+ * A streaming provider with controllable pacing. It waits `firstDelayMs` before its first content
+ * event, then sends `count` content events `gapMs` apart, then finishes. It honours the signal
+ * and reports a cancellation as an `aborted` error event.
+ */
+function pacedProvider(
+  id: string,
+  pacing: { firstDelayMs: number; gapMs: number; count: number; kind?: "text-delta" | "tool-call" },
+): ModelProvider {
+  return {
+    id,
+    capabilities: () => ({ streaming: true, tools: true, vision: false }),
+    chat: async () => {
+      throw new CoreError("unknown", `${id} does not support chat`);
+    },
+    stream: async function* (_request, opts): AsyncGenerator<StreamEvent> {
+      try {
+        await sleep(pacing.firstDelayMs, opts?.signal);
+        for (let index = 0; index < pacing.count; index++) {
+          if (index > 0) await sleep(pacing.gapMs, opts?.signal);
+          yield pacing.kind === "tool-call"
+            ? { type: "tool-call", toolCall: { id: `call-${index}`, name: "tool", arguments: {} } }
+            : { type: "text-delta", text: `chunk-${index} ` };
+        }
+        yield { type: "finish", finishReason: "stop", usage: {} };
+      } catch {
+        yield abortedEvent();
+      }
+    },
+  };
+}
+
 describe("ModelRouter.chat", () => {
   it("answers from the first step with a single attempt", async () => {
     const first = new MockProvider({ id: "first" });
@@ -300,6 +348,52 @@ describe("ModelRouter.stream", () => {
     const events = await collect(routerFor(slow, healthy).stream(request, [step("slow", 25), step("healthy")]));
     expect(events.filter((event) => event.type === "route")).toHaveLength(2);
     expect(events.at(-1)?.type).toBe("finish");
+  });
+
+  for (const kind of ["text-delta", "tool-call"] as const) {
+    it(`lets a stream that keeps sending ${kind} events run longer than timeoutMs`, async () => {
+      // The first event is immediate; the rest take about 140 ms in total, far past the 50 ms timeout.
+      const steady = pacedProvider("steady", { firstDelayMs: 0, gapMs: 20, count: 8, kind });
+      const spare = new MockProvider({ id: "spare" });
+      const started = Date.now();
+      const events = await collect(routerFor(steady, spare).stream(request, [step("steady", 50), step("spare")]));
+      expect(Date.now() - started).toBeGreaterThan(50);
+      expect(events.filter((event) => event.type === kind)).toHaveLength(8);
+      expect(events.filter((event) => event.type === "route")).toHaveLength(1);
+      expect(events.some((event) => event.type === "error")).toBe(false);
+      expect(events.at(-1)?.type).toBe("finish");
+      expect(spare.calls).toHaveLength(0);
+    });
+  }
+
+  it("times out a stream that stalls before its first content, and falls back", async () => {
+    const stalled = pacedProvider("stalled", { firstDelayMs: 5_000, gapMs: 0, count: 1 });
+    const healthy = new MockProvider({ id: "healthy" });
+    const events = await collect(routerFor(stalled, healthy).stream(request, [step("stalled", 30), step("healthy")]));
+    expect(events.map((event) => event.type)).toEqual(["route", "route", "text-delta", "finish"]);
+    expect(events.filter((event) => event.type === "route").map((event) => (event as { attempt: number }).attempt)).toEqual([1, 2]);
+    expect(healthy.calls).toHaveLength(1);
+    expect(events.some((event) => event.type === "error")).toBe(false);
+  });
+
+  it("reports timeout when the only step stalls before its first content", async () => {
+    const stalled = pacedProvider("stalled", { firstDelayMs: 5_000, gapMs: 0, count: 1 });
+    const events = await collect(routerFor(stalled).stream(request, [step("stalled", 30)]));
+    expect(events.map((event) => event.type)).toEqual(["route", "error"]);
+    expect(finalError(events)).toMatchObject({ code: "timeout", message: "all 1 route steps failed" });
+  });
+
+  it("still ends a stream with aborted when the caller aborts after content has started", async () => {
+    const steady = pacedProvider("steady", { firstDelayMs: 0, gapMs: 30, count: 50 });
+    const spare = new MockProvider({ id: "spare" });
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 80);
+    const events = await collect(
+      routerFor(steady, spare).stream(request, [step("steady", 50), step("spare")], { signal: controller.signal }),
+    );
+    expect(events.some((event) => event.type === "text-delta")).toBe(true);
+    expect(finalError(events).code).toBe("aborted");
+    expect(spare.calls).toHaveLength(0);
   });
 
   it("ends with a timeout error event when the only step times out", async () => {
