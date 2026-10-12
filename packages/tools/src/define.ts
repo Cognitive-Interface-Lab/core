@@ -3,8 +3,9 @@ import { z } from "zod";
 import type { RegisteredTool, ToolContext } from "./registry.js";
 
 /**
- * Declares a local tool in one place: the zod `input` gives the JSON Schema the model sees and
- * the validated, typed arguments the handler receives. Invalid arguments throw `bad_request`,
+ * Declares a local tool in one place: the zod `input` gives the JSON Schema the model sees (as the
+ * arguments it sends, so a field with a default is optional) and the validated, typed arguments
+ * the handler receives. Invalid arguments throw `bad_request`,
  * which `ToolRegistry.call` turns into a result the model can read. The definition and policy
  * are validated when the tool is registered.
  */
@@ -16,7 +17,7 @@ export function defineTool<S extends z.ZodObject>(spec: {
   policy: ToolPolicy;
   handler: (args: z.infer<S>, ctx: ToolContext) => unknown | Promise<unknown>;
 }): RegisteredTool {
-  const inputSchema: Record<string, unknown> = { ...z.toJSONSchema(spec.input) };
+  const inputSchema: Record<string, unknown> = { ...z.toJSONSchema(spec.input, { io: "input" }) };
   delete inputSchema["$schema"];
   return {
     definition: { name: spec.name, description: spec.description, inputSchema },
