@@ -21,8 +21,10 @@ const DEFAULT_ROUTE = "mock:echo";
 
 const USAGE = `usage: pnpm --filter @core/example-hello-gateway start <prompt>
 
-  CORE_ROUTE   comma-separated model refs, tried in order (default "${DEFAULT_ROUTE}"),
-               for example "openai:gpt-4.1-mini,ollama:llama3.2:3b,mock:echo"
+  CORE_ROUTE       comma-separated model refs, tried in order (default "${DEFAULT_ROUTE}"),
+                   for example "openai:gpt-4.1-mini,ollama:llama3.2:3b,mock:echo"
+  CORE_TIMEOUT_MS  per-step timeout in ms, a positive integer (default: the router's 30000);
+                   raise it for a cold local model
 `;
 
 type Writer = { write(s: string): void };
@@ -48,7 +50,7 @@ function failedAttemptLines(attempts: unknown): string[] {
 
 /**
  * Streams one answer through the gateway. Returns the process exit code:
- * 0 on success, 1 when the route fails, 2 for a missing prompt.
+ * 0 on success, 1 when the route fails, 2 for a missing prompt or a bad CORE_TIMEOUT_MS.
  */
 export async function run(
   argv: string[],
@@ -60,6 +62,16 @@ export async function run(
   if (prompt.trim() === "") {
     err.write(USAGE);
     return 2;
+  }
+
+  const rawTimeout = env["CORE_TIMEOUT_MS"];
+  let timeoutMs: number | undefined;
+  if (rawTimeout !== undefined) {
+    timeoutMs = /^[0-9]+$/.test(rawTimeout) ? Number(rawTimeout) : NaN;
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      err.write("error: bad_request: CORE_TIMEOUT_MS must be a positive integer\n");
+      return 2;
+    }
   }
 
   let route: ModelRef[];
@@ -92,7 +104,7 @@ export async function run(
 
   const events = router.stream(
     { messages: [{ role: "user", content: prompt }] },
-    route.map((model) => ({ model })),
+    route.map((model) => ({ model, ...(timeoutMs !== undefined && { timeoutMs }) })),
   );
   for await (const event of events) {
     switch (event.type) {
