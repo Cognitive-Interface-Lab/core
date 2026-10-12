@@ -12,6 +12,8 @@ import type { ModelRouter, RouteStep } from "@core/models";
 import type { ConfirmFn, ToolRegistry } from "@core/tools";
 
 const DEFAULT_MAX_ROUNDS = 8;
+/** `setTimeout` treats a longer delay as 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
 
 export type RunTurnOptions = {
   router: ModelRouter;
@@ -31,12 +33,38 @@ export type RunTurnOptions = {
  * until it answers without calling a tool or a limit ends the turn. Tools run one at a time, in
  * the order the model gave them. Never throws: every failure is an `error` event, and
  * `turn-finish` is always the last event, emitted exactly once, with the messages this turn added.
+ *
+ * Limits: `maxRounds` (default 8) ends the turn with `max-rounds`. `maxOutputTokens` ends it with
+ * `budget` after a round's tool results once the output tokens used reach the limit and another
+ * round would follow. `maxWallMs` is one timer for the whole turn: when it fires the model call and
+ * the running tool get an aborted signal and the turn ends with `budget`, without forwarding the
+ * `aborted` error that causes. An abort by the caller's own signal still ends with `aborted`.
  */
 export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, void, undefined> {
   const maxRounds = opts.budget?.maxRounds ?? DEFAULT_MAX_ROUNDS;
   const added: Message[] = [];
   const usage: Usage = {};
   let rounds = 0;
+
+  // One signal for the model and the tools: the caller's, plus the wall-time timer. `cause`
+  // remembers which of the two fired first.
+  const turn = new AbortController();
+  const signal = turn.signal;
+  let cause: "aborted" | "budget" | undefined;
+  const onCallerAbort = () => {
+    cause ??= "aborted";
+    turn.abort(opts.signal?.reason);
+  };
+  if (opts.signal?.aborted) onCallerAbort();
+  else opts.signal?.addEventListener("abort", onCallerAbort, { once: true });
+  const wallMs = opts.budget?.maxWallMs;
+  const timer =
+    wallMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          cause ??= "budget";
+          turn.abort(new DOMException(`the turn used its ${wallMs} ms budget`, "TimeoutError"));
+        }, Math.min(wallMs, MAX_TIMER_MS));
 
   const finish = (reason: TurnFinishReason): TurnEvent => ({
     type: "turn-finish",
@@ -48,8 +76,8 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
 
   try {
     for (let round = 1; round <= maxRounds; round++) {
-      if (opts.signal?.aborted) {
-        yield finish("aborted");
+      if (signal.aborted) {
+        yield finish(cause ?? "aborted");
         return;
       }
       rounds = round;
@@ -65,8 +93,13 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
       let text = "";
       const toolCalls: ToolCall[] = [];
       let finished = false;
-      for await (const event of opts.router.stream(request, opts.route, { signal: opts.signal })) {
+      for await (const event of opts.router.stream(request, opts.route, { signal })) {
         if (event.type === "error") {
+          if (cause === "budget" && event.error.code === "aborted") {
+            // The abort came from the wall-time budget: report the budget, not the cancellation.
+            yield finish("budget");
+            return;
+          }
           yield event;
           yield finish(event.error.code === "aborted" ? "aborted" : "error");
           return;
@@ -82,6 +115,10 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
         }
       }
       if (!finished) {
+        if (cause === "budget") {
+          yield finish("budget");
+          return;
+        }
         yield { type: "error", error: new CoreError("unknown", "the model stream ended without a finish event").toJSON() };
         yield finish("error");
         return;
@@ -98,7 +135,7 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
         // tool call in the history still has its result.
         const result = await opts.tools.call(call, {
           channel: opts.channel,
-          ...(opts.signal !== undefined && { signal: opts.signal }),
+          signal,
           ...(opts.confirm !== undefined && { confirm: opts.confirm }),
         });
         yield { type: "tool-result", result };
@@ -111,12 +148,17 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
         });
       }
 
-      if (opts.signal?.aborted) {
-        yield finish("aborted");
+      if (signal.aborted) {
+        yield finish(cause ?? "aborted");
         return;
       }
       if (round === maxRounds) {
         yield finish("max-rounds");
+        return;
+      }
+      const maxOutputTokens = opts.budget?.maxOutputTokens;
+      if (maxOutputTokens !== undefined && (usage.outputTokens ?? 0) >= maxOutputTokens) {
+        yield finish("budget");
         return;
       }
     }
@@ -127,6 +169,9 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
       : new CoreError("unknown", error instanceof Error && error.message !== "" ? error.message : "the turn failed");
     yield { type: "error", error: failure.toJSON() };
     yield finish("error");
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onCallerAbort);
   }
 }
 
