@@ -13,8 +13,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --clean",
-    "typecheck": "tsc --noEmit -p ."
+    "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
   "dependencies": {
     "@core/contracts": "workspace:*",

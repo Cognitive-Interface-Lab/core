@@ -18,7 +18,7 @@ Run `pnpm gate` before every hand-over. Never paste raw compiler or test output 
 - **No browser globals** (`window`, `localStorage`, `document`) in any package. Platform specifics enter through interfaces (for example `CredentialStore`).
 - **Tests never touch the network or a real model.** Use `MockProvider` and injected `fetch`. Cloud sessions have no Ollama and no API keys.
 - **Secrets never appear** in error messages, logs, events or snapshots.
-- ESM only, Node >= 22, TypeScript 5.9 strict. Workspace packages export `./src/index.ts` under the `@core/source` condition for development and `./dist` for consumers.
+- ESM only, Node >= 22, TypeScript strict: the TypeScript 7 compiler type-checks (`pnpm typecheck`), and the `typescript` 6.0 library serves the tools that still need its JavaScript API (typescript-eslint, tsdown). Packages build with tsdown. Workspace packages export `./src/index.ts` under the `@core/source` condition for development and `./dist` for consumers.
 - Prefer existing standards over new protocols: the Vercel AI SDK for provider wire formats, MCP for tools, OpenTelemetry for tracing.
 
 ## Working on issues
