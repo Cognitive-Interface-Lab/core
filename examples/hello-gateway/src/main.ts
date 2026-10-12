@@ -1,6 +1,13 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { CoreError, formatModelRef, parseModelRef, type ModelRef } from "@core/contracts";
+import {
+  CoreError,
+  CoreErrorShapeSchema,
+  ModelRefSchema,
+  formatModelRef,
+  parseModelRef,
+  type ModelRef,
+} from "@core/contracts";
 import {
   EnvCredentialStore,
   MockProvider,
@@ -19,6 +26,25 @@ const USAGE = `usage: pnpm --filter @core/example-hello-gateway start <prompt>
 `;
 
 type Writer = { write(s: string): void };
+
+/**
+ * One line per failed step of the router's `Attempt` log (`ok: false` with an `error`), in order.
+ * Entries of any other shape are skipped. The position is 1-based within the log.
+ */
+function failedAttemptLines(attempts: unknown): string[] {
+  if (!Array.isArray(attempts)) return [];
+  const lines: string[] = [];
+  attempts.forEach((entry: unknown, index) => {
+    if (typeof entry !== "object" || entry === null) return;
+    const { ok, model, error } = entry as Record<string, unknown>;
+    if (ok !== false) return;
+    const ref = ModelRefSchema.safeParse(model);
+    const failure = CoreErrorShapeSchema.safeParse(error);
+    if (!ref.success || !failure.success) return;
+    lines.push(`attempt ${index + 1} ${formatModelRef(ref.data)}: ${failure.data.code}: ${failure.data.message}\n`);
+  });
+  return lines;
+}
 
 /**
  * Streams one answer through the gateway. Returns the process exit code:
@@ -80,6 +106,7 @@ export async function run(
         break;
       case "error":
         if (wroteText) out.write("\n");
+        for (const line of failedAttemptLines(event.error.details?.["attempts"])) err.write(line);
         err.write(`error: ${event.error.code}: ${event.error.message}\n`);
         return 1;
       default:

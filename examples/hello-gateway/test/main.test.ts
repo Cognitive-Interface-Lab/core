@@ -134,7 +134,7 @@ describe("hello-gateway failures", () => {
     const { code, out, err } = await runWith(["hi"], { CORE_ROUTE: "nope:x" });
     expect(code).toBe(1);
     expect(out).toBe("");
-    expect(err).toMatch(/^error: [a-z_]+: .+\n$/);
+    expect(err).toMatch(/^(attempt .+\n)*error: [a-z_]+: .+\n$/);
     expect(err).not.toContain("[via");
     expect(fetchStub).not.toHaveBeenCalled();
   });
@@ -150,6 +150,6 @@ describe("hello-gateway failures", () => {
     forbidNetwork();
     const { code, err } = await runWith(["hi"], { CORE_ROUTE: "openai:gpt-4.1-mini,nope:x" });
     expect(code).toBe(1);
-    expect(err).toMatch(/^error: /);
+    expect(err).toMatch(/^(attempt .+\n)*error: /);
   });
 });
