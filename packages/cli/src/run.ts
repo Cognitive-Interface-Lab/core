@@ -1,8 +1,10 @@
 import { createRequire } from "node:module";
 import { CoreError } from "@core/contracts";
 import type { SecretStore } from "@core/credentials";
+import { logoutCommand, statusCommand } from "./commands/account.js";
 import { configCommand } from "./commands/config.js";
 import { loginCommand } from "./commands/login.js";
+import { modelsCommand } from "./commands/models.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
 export type Io = {
@@ -50,6 +52,15 @@ export const commands: Record<string, Command> = {
   },
   get login() {
     return loginCommand;
+  },
+  get logout() {
+    return logoutCommand;
+  },
+  get status() {
+    return statusCommand;
+  },
+  get models() {
+    return modelsCommand;
   },
 };
 
