@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { CoreError } from "@core/contracts";
 import type { SecretStore } from "@core/credentials";
 import { configCommand } from "./commands/config.js";
+import { loginCommand } from "./commands/login.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
 export type Io = {
@@ -46,6 +47,9 @@ export class UsageError extends Error {}
 export const commands: Record<string, Command> = {
   get config() {
     return configCommand;
+  },
+  get login() {
+    return loginCommand;
   },
 };
 
