@@ -2,6 +2,8 @@ import { createRequire } from "node:module";
 import { CoreError } from "@core/contracts";
 import type { SecretStore } from "@core/credentials";
 import { logoutCommand, statusCommand } from "./commands/account.js";
+import { askCommand } from "./commands/ask.js";
+import { chatCommand } from "./commands/chat.js";
 import { configCommand } from "./commands/config.js";
 import { loginCommand } from "./commands/login.js";
 import { modelsCommand } from "./commands/models.js";
@@ -47,6 +49,12 @@ export class UsageError extends Error {}
  * imports `UsageError` from this file, so an entry must not be read before both have loaded.
  */
 export const commands: Record<string, Command> = {
+  get ask() {
+    return askCommand;
+  },
+  get chat() {
+    return chatCommand;
+  },
   get config() {
     return configCommand;
   },
