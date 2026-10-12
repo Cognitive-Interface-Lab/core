@@ -1,0 +1,19 @@
+{
+  "name": "@core/example-hello-agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --conditions=@core/source --import tsx src/main.ts",
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/models": "workspace:*",
+    "@core/runtime": "workspace:*",
+    "@core/tools": "workspace:*"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1"
+  }
+}

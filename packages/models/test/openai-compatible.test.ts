@@ -99,6 +99,58 @@ describe("OpenAICompatibleProvider capabilities", () => {
       contextWindow: 128_000,
     });
   });
+
+  it("answers per model when the option is a function, merged with the defaults", () => {
+    const provider: ModelProvider = new OpenAICompatibleProvider({
+      id: "openai",
+      credentials: new MemoryCredentialStore(),
+      capabilities: (model) => (model === "gpt-vision" ? { vision: true, contextWindow: 64_000 } : {}),
+    });
+    expect(provider.capabilities("gpt-vision")).toEqual({
+      streaming: true,
+      tools: true,
+      vision: true,
+      contextWindow: 64_000,
+    });
+    expect(provider.capabilities("gpt-plain")).toEqual({ streaming: true, tools: true, vision: false });
+  });
+
+  it("passes the asked model id to the function on every call", () => {
+    const asked: string[] = [];
+    const provider: ModelProvider = new OpenAICompatibleProvider({
+      id: "ollama",
+      credentials: new MemoryCredentialStore(),
+      capabilities: (model) => {
+        asked.push(model);
+        return model.startsWith("llama3.2") ? { tools: false } : {};
+      },
+    });
+    expect(provider.capabilities("llama3.2:3b").tools).toBe(false);
+    expect(provider.capabilities("qwen3:8b").tools).toBe(true);
+    expect(provider.capabilities("llama3.2:3b").tools).toBe(false);
+    expect(asked).toEqual(["llama3.2:3b", "qwen3:8b", "llama3.2:3b"]);
+  });
+
+  it("returns a fresh object each time, so a caller cannot change later answers", () => {
+    const provider: ModelProvider = new OpenAICompatibleProvider({
+      id: "openai",
+      credentials: new MemoryCredentialStore(),
+      capabilities: () => ({ vision: true }),
+    });
+    const first = provider.capabilities("a");
+    first.vision = false;
+    expect(provider.capabilities("a").vision).toBe(true);
+  });
+
+  it("gives the object form the same answer for every model", () => {
+    const provider: ModelProvider = new OpenAICompatibleProvider({
+      id: "openai",
+      credentials: new MemoryCredentialStore(),
+      capabilities: { vision: true },
+    });
+    expect(provider.capabilities("a")).toEqual(provider.capabilities("b"));
+    expect(provider.capabilities("a").vision).toBe(true);
+  });
 });
 
 describe("OpenAICompatibleProvider.chat", () => {

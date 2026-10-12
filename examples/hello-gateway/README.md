@@ -15,7 +15,7 @@ The answer goes to stdout and a one-line summary to stderr:
     [via mock:echo · 3 ms · 1 attempt(s)]
 
 The exit code is 0 on success, 1 when every model in the route failed (an `error: <code>: <message>`
-line is printed), and 2 when no prompt was given.
+line is printed), and 2 when no prompt was given or `CORE_TIMEOUT_MS` is invalid.
 
 ## Choosing models: `CORE_ROUTE`
 
@@ -48,6 +48,17 @@ Try a hosted model first, then local Ollama, then the mock:
 
 With no `CORE_OPENAI_API_KEY` set, the first step fails before any network call and the answer
 comes from the next one, for example `[via mock:echo · 2 ms · 2 attempt(s)]`.
+
+## Cold starts: `CORE_TIMEOUT_MS`
+
+The router waits 30 s for the first content of each step before it gives up and falls back with a
+`timeout` error. A cold local model (Ollama loading weights into a small GPU) can need longer.
+Raise the limit for every step with `CORE_TIMEOUT_MS`, a positive integer in milliseconds:
+
+    CORE_TIMEOUT_MS=120000 CORE_ROUTE=ollama:llama3.2:3b pnpm --filter @core/example-hello-gateway start hi
+
+Or warm the model first with `ollama run <model> ""`. Any other value of `CORE_TIMEOUT_MS` prints
+`error: bad_request: CORE_TIMEOUT_MS must be a positive integer` and exits with 2, without calling a model.
 
 ## Credentials
 

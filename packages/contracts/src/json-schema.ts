@@ -4,8 +4,9 @@ import * as messages from "./messages.js";
 import * as models from "./models.js";
 import * as stream from "./stream.js";
 import * as tools from "./tools.js";
+import * as turn from "./turn.js";
 
-const SCHEMA_MODULES: Record<string, unknown>[] = [errors, tools, messages, models, stream];
+const SCHEMA_MODULES: Record<string, unknown>[] = [errors, tools, messages, models, stream, turn];
 
 /** JSON Schema for every exported `XxxSchema`, keyed by type name (`Message`, `ChatRequest`, ...). */
 export function toJsonSchemas(): Record<string, unknown> {

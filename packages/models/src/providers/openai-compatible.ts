@@ -57,25 +57,27 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   readonly #credentials: CredentialStore;
   readonly #preset: Preset | undefined;
-  readonly #capabilities: ModelCapabilities;
+  readonly #capabilities: Partial<ModelCapabilities> | ((model: string) => Partial<ModelCapabilities>);
   readonly #fetch: typeof fetch | undefined;
 
   constructor(opts: {
     id: string;
     credentials: CredentialStore;
     preset?: Preset;
-    capabilities?: Partial<ModelCapabilities>;
+    /** Overrides of the defaults: one object for every model, or a function answering per model. */
+    capabilities?: Partial<ModelCapabilities> | ((model: string) => Partial<ModelCapabilities>);
     fetch?: typeof fetch;
   }) {
     this.id = opts.id;
     this.#credentials = opts.credentials;
     this.#preset = opts.preset;
-    this.#capabilities = { ...DEFAULT_CAPABILITIES, ...opts.capabilities };
+    this.#capabilities = opts.capabilities ?? {};
     this.#fetch = opts.fetch;
   }
 
-  capabilities(): ModelCapabilities {
-    return { ...this.#capabilities };
+  capabilities(model: string): ModelCapabilities {
+    const overrides = typeof this.#capabilities === "function" ? this.#capabilities(model) : this.#capabilities;
+    return { ...DEFAULT_CAPABILITIES, ...overrides };
   }
 
   async chat(req: ChatRequest, opts?: ChatOptions): Promise<ChatResponse> {
