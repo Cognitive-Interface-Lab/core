@@ -20,4 +20,6 @@ export interface ModelProvider {
    * Providers never emit `route` events; only the router does.
    */
   stream(req: ChatRequest, opts?: ChatOptions): AsyncIterable<StreamEvent>;
+  /** Sorted, unique model ids the provider offers. Throws `CoreError` only. */
+  listModels?(opts?: ChatOptions): Promise<string[]>;
 }
