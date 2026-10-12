@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node --conditions=@core/source --import tsx src/main.ts",
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
   "dependencies": {
     "@core/contracts": "workspace:*",
