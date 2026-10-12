@@ -86,6 +86,33 @@ describe("defineTool", () => {
     expect(received).toEqual([{ n: 3, label: "padded" }]);
   });
 
+  it("lists a field with a default in properties but not in required, and applies the default when it is left out", async () => {
+    const received: { name: string; times: number }[] = [];
+    const repeat = defineTool({
+      name: "repeat",
+      description: "Repeats a name",
+      input: z.object({ name: z.string(), times: z.number().default(1) }),
+      policy: { sideEffects: false },
+      handler: (args) => {
+        received.push(args);
+        return "ok";
+      },
+    });
+    const schema = repeat.definition.inputSchema;
+    expect(Object.keys(schema["properties"] as object).sort()).toEqual(["name", "times"]);
+    expect(schema["required"]).toEqual(["name"]);
+
+    const registry = new ToolRegistry().register(repeat);
+    const left = await registry.call({ id: "c1", name: "repeat", arguments: { name: "Ada" } }, local);
+    expect(left.isError).toBe(false);
+    const given = await registry.call({ id: "c2", name: "repeat", arguments: { name: "Ada", times: 3 } }, local);
+    expect(given.isError).toBe(false);
+    expect(received).toEqual([
+      { name: "Ada", times: 1 },
+      { name: "Ada", times: 3 },
+    ]);
+  });
+
   it("passes the context to the handler and awaits an async handler", async () => {
     const ctx: ToolContext = { channel: "voice" };
     const tool = defineTool({
