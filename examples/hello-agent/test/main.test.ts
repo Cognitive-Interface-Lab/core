@@ -347,19 +347,40 @@ describe("hello-agent: arguments and failures", () => {
     });
   }
 
-  it("exits 1 with an error line when every step of the route fails", async () => {
+  it("exits 1 with an attempt line and an error line, and no [via line, when every step of the route fails", async () => {
     const { code, out, err } = await runAgent(["go"], [{ error: { code: "unavailable", message: "down", retryable: true } }]);
     expect(code).toBe(1);
-    expect(out).toBe("\n");
-    expect(err).toMatch(/^error: error: unavailable: .+$/m);
-    expect(lines(err).at(-1)).toMatch(/^error: /);
+    expect(out).toBe("");
+    expect(err).not.toContain("[via");
+    expect(lines(err)).toEqual(["attempt 1 mock:x: unavailable: down", "error: unavailable: all 1 route steps failed"]);
+  });
+
+  it("prints one attempt line per failed step, in order, before the error line", async () => {
+    const { code, err } = await runAgent(
+      ["go"],
+      [
+        { error: { code: "unavailable", message: "down", retryable: true } },
+        { error: { code: "rate_limit", message: "slow down", retryable: true } },
+      ],
+      { env: { CORE_ROUTE: "mock:a,mock:b" } },
+    );
+    expect(code).toBe(1);
+    expect(lines(err)).toEqual([
+      "attempt 1 mock:a: unavailable: down",
+      "attempt 2 mock:b: rate_limit: slow down",
+      expect.stringMatching(/^error: rate_limit: all 2 route steps failed$/),
+    ]);
   });
 
   it("exits 1 when the route names a provider nobody registered", async () => {
     const fetchStub = forbidNetwork();
     const { code, err, mock } = await runAgent(["go"], [{ text: "unused" }], { env: { CORE_ROUTE: "nope:x" } });
     expect(code).toBe(1);
-    expect(err).toMatch(/^error: error: not_found: .+$/m);
+    expect(err).not.toContain("[via");
+    expect(lines(err)).toEqual([
+      expect.stringMatching(/^attempt 1 nope:x: not_found: .+$/),
+      "error: not_found: all 1 route steps failed",
+    ]);
     expect(mock.calls).toHaveLength(0);
     expect(fetchStub).not.toHaveBeenCalled();
   });
@@ -381,13 +402,16 @@ describe("hello-agent: arguments and failures", () => {
     expect(err).toMatch(/\[via mock:b · 1 round\(s\) · \d+ ms\]/);
   });
 
-  it("ends with an error line when the model keeps calling tools past the round limit", async () => {
-    const script = Array.from({ length: 12 }, (_, n) => callTurn(`c${n}`, "calculate", { expression: "1+1" }));
-    const { code, err, mock } = await runAgent(["go"], script);
+  it("reports exactly error: max-rounds when the model calls a tool in every one of the 8 rounds", async () => {
+    const script = Array.from({ length: 8 }, (_, n) => callTurn(`c${n}`, "calculate", { expression: "1+1" }));
+    const { code, out, err, mock } = await runAgent(["go"], script);
     expect(code).toBe(1);
+    expect(out).toBe("");
     expect(mock.calls).toHaveLength(8);
+    expect(err).not.toContain("[via");
+    expect(err).not.toContain("attempt ");
+    expect(lines(err).filter((line) => line.startsWith("error:"))).toEqual(["error: max-rounds"]);
     expect(lines(err).at(-1)).toBe("error: max-rounds");
-    expect(err).toMatch(/\[via mock:x · 8 round\(s\) · \d+ ms\]/);
   });
 });
 
