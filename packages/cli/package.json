@@ -19,6 +19,7 @@
     "@core/credentials": "workspace:*",
     "@core/models": "workspace:*",
     "@core/runtime": "workspace:*",
-    "@core/tools": "workspace:*"
+    "@core/tools": "workspace:*",
+    "zod": "^4.0.0"
   }
 }

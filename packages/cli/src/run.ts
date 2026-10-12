@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { CoreError } from "@core/contracts";
 import type { SecretStore } from "@core/credentials";
+import { configCommand } from "./commands/config.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
 export type Io = {
@@ -38,8 +39,15 @@ export type Command = {
 /** A mistake in how the command was called: reported with the command's usage, exit code 2. */
 export class UsageError extends Error {}
 
-/** Later slices add their commands here. */
-export const commands: Record<string, Command> = {};
+/**
+ * Later slices add their commands here. The getters keep module cycles harmless: a command module
+ * imports `UsageError` from this file, so an entry must not be read before both have loaded.
+ */
+export const commands: Record<string, Command> = {
+  get config() {
+    return configCommand;
+  },
+};
 
 export async function run(argv: string[], io: Io): Promise<number> {
   // A leading "--" only marks the end of the launcher's own options (`pnpm start -- --help`); skip it.
