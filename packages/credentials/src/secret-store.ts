@@ -79,12 +79,12 @@ export class FileSecretStore implements SecretStore {
     this.location = path;
   }
 
-  get(name: string): Promise<string | undefined> {
+  async get(name: string): Promise<string | undefined> {
     assertSecretName(name);
     return this.#run(async () => (await this.#read()).get(name));
   }
 
-  set(name: string, value: string): Promise<void> {
+  async set(name: string, value: string): Promise<void> {
     assertSecretName(name);
     return this.#run(async () => {
       const secrets = await this.#read();
@@ -93,7 +93,7 @@ export class FileSecretStore implements SecretStore {
     });
   }
 
-  delete(name: string): Promise<boolean> {
+  async delete(name: string): Promise<boolean> {
     assertSecretName(name);
     return this.#run(async () => {
       const secrets = await this.#read();
