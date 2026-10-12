@@ -1,0 +1,24 @@
+{
+  "name": "@core/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "core": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown src/main.ts --format esm --clean --no-fixed-extension",
+    "start": "node --conditions=@core/source --import tsx src/main.ts",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/credentials": "workspace:*",
+    "@core/models": "workspace:*",
+    "@core/runtime": "workspace:*",
+    "@core/tools": "workspace:*"
+  }
+}

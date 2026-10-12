@@ -225,6 +225,24 @@ importers:
         specifier: workspace:*
         version: link:../../packages/models
 
+  packages/cli:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@core/credentials':
+        specifier: workspace:*
+        version: link:../credentials
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@core/tools':
+        specifier: workspace:*
+        version: link:../tools
+
   packages/contracts:
     dependencies:
       zod:
