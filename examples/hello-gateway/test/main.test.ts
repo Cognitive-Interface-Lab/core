@@ -30,6 +30,20 @@ function forbidNetwork() {
   return stub;
 }
 
+/** Replaces global fetch with a stub that never answers until the request is aborted. */
+function hangingNetwork() {
+  const stub = vi.fn(
+    (_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal?.aborted) return reject(signal.reason);
+        signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+      }),
+  );
+  vi.stubGlobal("fetch", stub);
+  return stub;
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -77,6 +91,11 @@ describe("hello-gateway without a prompt", () => {
       expect(err).toContain("CORE_ROUTE");
     });
   }
+
+  it("lists CORE_TIMEOUT_MS in the usage text", async () => {
+    const { err } = await runWith([]);
+    expect(err).toContain("CORE_TIMEOUT_MS");
+  });
 });
 
 describe("hello-gateway fallback", () => {
@@ -151,5 +170,103 @@ describe("hello-gateway failures", () => {
     const { code, err } = await runWith(["hi"], { CORE_ROUTE: "openai:gpt-4.1-mini,nope:x" });
     expect(code).toBe(1);
     expect(err).toMatch(/^(attempt .+\n)*error: /);
+  });
+});
+
+describe("hello-gateway route failure lines", () => {
+  it("prints one attempt line per failed step, in order, before the error line", async () => {
+    const fetchStub = forbidNetwork();
+    const { code, out, err } = await runWith(["hi"], { CORE_ROUTE: "openai:gpt-4.1-mini,nope:x" });
+    expect(code).toBe(1);
+    expect(out).toBe("");
+    const lines = err.trimEnd().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^attempt 1 openai:gpt-4\.1-mini: auth: .+/);
+    expect(lines[1]).toMatch(/^attempt 2 nope:x: not_found: .+/);
+    expect(lines[2]).toMatch(/^error: not_found: all 2 route steps failed$/);
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("numbers attempts from 1 and keeps a model id that contains colons", async () => {
+    forbidNetwork();
+    const { err } = await runWith(["hi"], { CORE_ROUTE: "nope:llama3.2:3b" });
+    expect(err).toMatch(/^attempt 1 nope:llama3\.2:3b: not_found: .+\nerror: /);
+  });
+
+  it("shows the reason a provider rejected the request without leaking the key", async () => {
+    const secret = "sk-attempt-line-key-789";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: `bad key ${secret}`, type: "auth" } }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    );
+    const { code, out, err } = await runWith(["hi"], {
+      CORE_ROUTE: "openai:gpt-4.1-mini",
+      CORE_OPENAI_API_KEY: secret,
+    });
+    expect(code).toBe(1);
+    expect(err).toMatch(/^attempt 1 openai:gpt-4\.1-mini: auth: .+\nerror: auth: all 1 route steps failed\n$/);
+    expect(out + err).not.toContain(secret);
+  });
+
+  it("prints no attempt lines when a later step succeeds", async () => {
+    forbidNetwork();
+    const { code, err } = await runWith(["hi"], { CORE_ROUTE: "nope:x,mock:echo" });
+    expect(code).toBe(0);
+    expect(err).not.toContain("attempt 1");
+    expect(err).not.toContain("error:");
+  });
+});
+
+describe("hello-gateway CORE_TIMEOUT_MS", () => {
+  for (const value of ["abc", "0", "-5", "1.5"]) {
+    it(`exits 2 with a clear error for ${JSON.stringify(value)} and calls no model`, async () => {
+      const fetchStub = forbidNetwork();
+      const { code, out, err } = await runWith(["hi"], {
+        CORE_ROUTE: "openai:gpt-4.1-mini,mock:echo",
+        CORE_OPENAI_API_KEY: "sk-timeout-test-key",
+        CORE_TIMEOUT_MS: value,
+      });
+      expect(code).toBe(2);
+      expect(out).toBe("");
+      expect(err).toBe("error: bad_request: CORE_TIMEOUT_MS must be a positive integer\n");
+      expect(fetchStub).not.toHaveBeenCalled();
+    });
+  }
+
+  it("accepts a positive integer and answers normally", async () => {
+    const { code, out, err } = await runWith(["hi"], { CORE_TIMEOUT_MS: "120000" });
+    expect(code).toBe(0);
+    expect(out).toBe("echo: hi\n");
+    expect(err).toMatch(/^\[via mock:echo · \d+ ms · 1 attempt\(s\)\]\n$/);
+  });
+
+  it("reaches the router: a step slower than the value times out and the route falls back", async () => {
+    const fetchStub = hangingNetwork();
+    const { code, out, err } = await runWith(["hi"], {
+      CORE_ROUTE: "openai:gpt-4.1-mini,mock:echo",
+      CORE_OPENAI_API_KEY: "sk-timeout-test-key",
+      CORE_TIMEOUT_MS: "50",
+    });
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+    expect(code).toBe(0);
+    expect(out).toBe("echo: hi\n");
+    expect(err).toMatch(/^\[via mock:echo · \d+ ms · 2 attempt\(s\)\]\n$/);
+  });
+
+  it("applies the value to the step: the failure line names it", async () => {
+    hangingNetwork();
+    const { code, err } = await runWith(["hi"], {
+      CORE_ROUTE: "openai:gpt-4.1-mini",
+      CORE_OPENAI_API_KEY: "sk-timeout-test-key",
+      CORE_TIMEOUT_MS: "50",
+    });
+    expect(code).toBe(1);
+    expect(err).toMatch(/^attempt 1 openai:gpt-4\.1-mini: timeout: .*timed out after 50 ms\nerror: timeout: /);
   });
 });
