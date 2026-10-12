@@ -11,10 +11,12 @@ Run it from the repository root, after `pnpm install`:
 
 The answer goes to stdout. Everything else goes to stderr: each tool call as `[tool <name> <arguments>]`,
 each result as `[result <name> <content>]` (or `[error <name> …]` when the tool failed; content is cut
-at 200 characters), and a last line `[via <provider:model> · <n> round(s) · <ms> ms]`.
+at 200 characters), and, when the model finishes on its own, a last line `[via <provider:model> · <n> round(s) · <ms> ms]`.
 
-The exit code is 0 when the model finishes on its own, 1 when the turn or its setup fails (an
-`error: <reason>` line says why), and 2 when no prompt was given or `CORE_TIMEOUT_MS` is invalid.
+The exit code is 0 when the model finishes on its own, 1 when the turn or its setup fails, and 2 when
+no prompt was given or `CORE_TIMEOUT_MS` is invalid. A failed route prints one
+`attempt <n> <provider:model>: <code>: <message>` line per failed step and then `error: <code>: <message>`;
+any other failure prints `error: <reason>`, for example `error: max-rounds`.
 
 ## With the mock (no model, no network)
 

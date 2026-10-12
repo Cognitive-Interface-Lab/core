@@ -1,6 +1,14 @@
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
-import { CoreError, formatModelRef, parseModelRef, type Message, type ModelRef } from "@core/contracts";
+import {
+  CoreError,
+  CoreErrorShapeSchema,
+  ModelRefSchema,
+  formatModelRef,
+  parseModelRef,
+  type Message,
+  type ModelRef,
+} from "@core/contracts";
 import {
   EnvCredentialStore,
   MockProvider,
@@ -32,6 +40,25 @@ const USAGE = `usage: pnpm --filter @core/example-hello-agent start [--yes] <pro
 `;
 
 type Writer = { write(s: string): void };
+
+/**
+ * One line per failed step of the router's `Attempt` log (`ok: false` with an `error`), in order.
+ * Entries of any other shape are skipped. The position is 1-based within the log.
+ */
+function failedAttemptLines(attempts: unknown): string[] {
+  if (!Array.isArray(attempts)) return [];
+  const lines: string[] = [];
+  attempts.forEach((entry: unknown, index) => {
+    if (typeof entry !== "object" || entry === null) return;
+    const { ok, model, error } = entry as Record<string, unknown>;
+    if (ok !== false) return;
+    const ref = ModelRefSchema.safeParse(model);
+    const failure = CoreErrorShapeSchema.safeParse(error);
+    if (!ref.success || !failure.success) return;
+    lines.push(`attempt ${index + 1} ${formatModelRef(ref.data)}: ${failure.data.code}: ${failure.data.message}\n`);
+  });
+  return lines;
+}
 
 export type AgentDeps = {
   /** Replaces the providers built from the route, for tests. */
@@ -100,7 +127,8 @@ export async function run(
       { role: "user", content: prompt },
     ];
     let via: ModelRef | undefined;
-    let modelError: { code: string; message: string } | undefined;
+    let modelError: { code: string; message: string; attempts: unknown } | undefined;
+    let wroteText = false;
     let reason = "error";
     let rounds = 0;
 
@@ -122,6 +150,7 @@ export async function run(
           via = event.model;
           break;
         case "text-delta":
+          wroteText = true;
           out.write(event.text);
           break;
         case "tool-call":
@@ -133,7 +162,11 @@ export async function run(
           break;
         }
         case "error":
-          modelError = { code: event.error.code, message: event.error.message };
+          modelError = {
+            code: event.error.code,
+            message: event.error.message,
+            attempts: event.error.details?.["attempts"],
+          };
           break;
         case "turn-finish":
           reason = event.reason;
@@ -144,11 +177,19 @@ export async function run(
       }
     }
 
-    out.write("\n");
-    const ms = Math.round(performance.now() - started);
-    err.write(`[via ${via ? formatModelRef(via) : "?"} · ${rounds} round(s) · ${ms} ms]\n`);
-    if (reason === "stop") return 0;
-    err.write(`error: ${reason}${modelError ? `: ${modelError.code}: ${modelError.message}` : ""}\n`);
+    if (reason === "stop") {
+      out.write("\n");
+      const ms = Math.round(performance.now() - started);
+      err.write(`[via ${via ? formatModelRef(via) : "?"} · ${rounds} round(s) · ${ms} ms]\n`);
+      return 0;
+    }
+    if (wroteText) out.write("\n");
+    if (modelError) {
+      for (const line of failedAttemptLines(modelError.attempts)) err.write(line);
+      err.write(`error: ${modelError.code}: ${modelError.message}\n`);
+    } else {
+      err.write(`error: ${reason}\n`);
+    }
     return 1;
   } catch (error) {
     err.write(`error: ${CoreError.is(error) ? `${error.code}: ${error.message}` : "unknown: the agent failed"}\n`);
