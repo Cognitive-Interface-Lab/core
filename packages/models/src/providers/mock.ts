@@ -44,7 +44,9 @@ export class MockProvider implements ModelProvider {
     this.#echo = opts?.echo ?? opts?.script === undefined;
   }
 
-  capabilities(): ModelCapabilities {
+  // The mock answers the same for every model; the parameter only mirrors `ModelProvider`.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  capabilities(_model?: string): ModelCapabilities {
     return { streaming: true, tools: true, vision: false };
   }
 
