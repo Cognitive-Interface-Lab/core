@@ -221,6 +221,18 @@ importers:
         specifier: ^7.0.0
         version: 7.0.137(zod@4.6.5)
 
+  packages/runtime:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/tools':
+        specifier: workspace:*
+        version: link:../tools
+
   packages/tools:
     dependencies:
       '@core/contracts':
