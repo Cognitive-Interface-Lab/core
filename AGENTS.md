@@ -14,7 +14,7 @@ Run `pnpm gate` before every hand-over. Never paste raw compiler or test output 
 ## Engineering rules
 
 - **One definition per shape.** Every cross-package shape is a zod schema in `@core/contracts`; TypeScript types are `z.infer` of it. Never redeclare a contract type elsewhere. Schemas are named `XxxSchema`, inferred types `Xxx`.
-- **Dependencies point one way:** `contracts` ← `models`, `tools`, `graph` ← `runtime` ← `server` ← clients, examples and apps. A package never imports from a package to its right.
+- **Dependencies point one way:** `contracts` ← `models`, `tools`, `graph` ← `runtime` ← `server` ← clients, examples and apps. The graph stores (`graph-sqlite`, `graph-postgres`) depend only on `contracts` and `graph`; apps and examples pick one. A package never imports from a package to its right.
 - **No browser globals** (`window`, `localStorage`, `document`) in any package. Platform specifics enter through interfaces (for example `CredentialStore`).
 - **Tests never touch the network or a real model.** Use `MockProvider` and injected `fetch`. Cloud sessions have no Ollama and no API keys.
 - **Secrets never appear** in error messages, logs, events or snapshots.
