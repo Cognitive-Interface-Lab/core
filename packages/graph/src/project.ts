@@ -18,7 +18,10 @@ export function emptyState(graphId: string): GraphState {
 export function project(records: GraphEventRecord[]): GraphState {
   const first = records[0];
   if (first === undefined) throw new CoreError("not_found", "a graph needs at least one event");
-  return records.reduce(applyEvent, emptyState(first.graphId));
+  // One private state, changed in place: copying every collection per record would make a replay quadratic.
+  const state = emptyState(first.graphId);
+  for (const record of records) applyInPlace(state, record);
+  return state;
 }
 
 /**
@@ -26,6 +29,20 @@ export function project(records: GraphEventRecord[]): GraphState {
  * Throws `bad_request`, naming the broken rule, for a record that would corrupt the graph.
  */
 export function applyEvent(state: GraphState, record: GraphEventRecord): GraphState {
+  const next: GraphState = {
+    ...state,
+    // Branches are the one record the rules change in place (their head), so each gets its own copy.
+    branches: Object.fromEntries(Object.entries(state.branches).map(([id, branch]) => [id, { ...branch }])),
+    nodes: { ...state.nodes },
+    turns: { ...state.turns },
+    refs: [...state.refs],
+  };
+  applyInPlace(next, record);
+  return next;
+}
+
+/** The one place the rules live: checks `record` against `state` and changes `state` itself. A throw leaves `state` unusable. */
+function applyInPlace(state: GraphState, record: GraphEventRecord): void {
   if (record.graphId !== state.graphId) {
     fail(`record of graph ${record.graphId} applied to graph ${state.graphId}`);
   }
@@ -37,12 +54,10 @@ export function applyEvent(state: GraphState, record: GraphEventRecord): GraphSt
   if ((event.type === "graph-created") !== (record.seq === 1)) {
     fail(record.seq === 1 ? `seq 1 must be graph-created, not ${event.type}` : `graph-created at seq ${record.seq}`);
   }
-  const next = { ...state, lastSeq: record.seq };
-  apply(next, event, record);
-  return next;
+  state.lastSeq = record.seq;
+  apply(state, event, record);
 }
 
-/** Applies `event` to `next`, a shallow copy of the previous state; every changed collection is replaced, never mutated. */
 function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): void {
   switch (event.type) {
     case "graph-created": {
@@ -59,7 +74,7 @@ function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): v
       if (event.from !== null && !Object.hasOwn(next.nodes, event.from)) fail(`branch from unknown node ${event.from}`);
       const branch: Branch = { id: event.branchId, name: event.name, from: event.from, head: event.from };
       if (event.replayOf !== undefined) branch.replayOf = event.replayOf;
-      next.branches = { ...next.branches, [branch.id]: branch };
+      next.branches[branch.id] = branch;
       return;
     }
     case "message-added": {
@@ -67,8 +82,8 @@ function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): v
       if (Object.hasOwn(next.nodes, event.nodeId)) fail(`node ${event.nodeId} already exists`);
       const node: GraphNode = { id: event.nodeId, branchId: branch.id, parentIds: parents(branch), message: event.message };
       if (event.origin !== undefined) node.origin = event.origin;
-      next.nodes = { ...next.nodes, [node.id]: node };
-      next.branches = { ...next.branches, [branch.id]: { ...branch, head: node.id } };
+      next.nodes[node.id] = node;
+      branch.head = node.id;
       return;
     }
     case "turn-recorded": {
@@ -85,27 +100,22 @@ function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): v
         seen.add(id);
       }
 
-      const nodes = { ...next.nodes };
       let head = branch.head;
       finish.messages.forEach((message, index) => {
         const id = event.nodeIds[index] as string;
-        nodes[id] = { id, branchId: branch.id, parentIds: head === null ? [] : [head], message, turnId: event.turnId };
+        next.nodes[id] = { id, branchId: branch.id, parentIds: head === null ? [] : [head], message, turnId: event.turnId };
         head = id;
       });
-      next.nodes = nodes;
-      next.branches = { ...next.branches, [branch.id]: { ...branch, head } };
+      branch.head = head;
 
       const model = lastRoute(event.events);
-      next.turns = {
-        ...next.turns,
-        [event.turnId]: {
-          id: event.turnId,
-          branchId: branch.id,
-          nodeIds: [...event.nodeIds],
-          reason: finish.reason,
-          ...(model !== undefined && { model }),
-          usage: finish.usage,
-        },
+      next.turns[event.turnId] = {
+        id: event.turnId,
+        branchId: branch.id,
+        nodeIds: [...event.nodeIds],
+        reason: finish.reason,
+        ...(model !== undefined && { model }),
+        usage: finish.usage,
       };
       return;
     }
@@ -126,8 +136,8 @@ function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): v
         merge: { strategy: event.strategy, sourceBranchId: source.id },
       };
       if (event.message !== undefined) node.message = event.message;
-      next.nodes = { ...next.nodes, [node.id]: node };
-      next.branches = { ...next.branches, [target.id]: { ...target, head: node.id } };
+      next.nodes[node.id] = node;
+      target.head = node.id;
       return;
     }
     case "cross-referenced": {
@@ -136,10 +146,7 @@ function apply(next: GraphState, event: GraphEvent, record: GraphEventRecord): v
       if (event.to.graphId === next.graphId && !Object.hasOwn(next.nodes, event.to.nodeId)) {
         fail(`reference to unknown node ${event.to.nodeId}`);
       }
-      next.refs = [
-        ...next.refs,
-        { id: event.refId, from: event.from, to: event.to, ...(event.label !== undefined && { label: event.label }) },
-      ];
+      next.refs.push({ id: event.refId, from: event.from, to: event.to, ...(event.label !== undefined && { label: event.label }) });
       return;
     }
   }
