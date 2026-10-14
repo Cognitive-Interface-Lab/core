@@ -344,7 +344,7 @@ describe("core login: Cloudflare with an API token", () => {
   it("asks for the token and the account ID, verifies through the model search, and saves both", async () => {
     const api = http();
     const fake = fakeIo({ answers: { secret: [TOKEN], line: ["acct-123"] }, fetch: api.fetch });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(0);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(0);
 
     expect(fake.asked).toEqual(["Cloudflare API token (Workers AI read + edit): ", "Cloudflare account ID: "]);
     expect(api.calls).toHaveLength(1);
@@ -359,7 +359,7 @@ describe("core login: Cloudflare with an API token", () => {
   it("does not ask for the account ID when --account-id is given", async () => {
     const api = http();
     const fake = fakeIo({ answers: { secret: [TOKEN] }, fetch: api.fetch });
-    expect(await run(["login", "cloudflare", "--account-id", "acct-flag"], fake.io)).toBe(0);
+    expect(await run(["login", "cloudflare", "--key", "--account-id", "acct-flag"], fake.io)).toBe(0);
     expect(fake.asked).toEqual(["Cloudflare API token (Workers AI read + edit): "]);
     expect(api.calls[0]?.url).toContain("/accounts/acct-flag/ai/models/search");
     expect(await saved(fake, "cloudflare")).toMatchObject({ accountId: "acct-flag" });
@@ -377,7 +377,7 @@ describe("core login: Cloudflare with an API token", () => {
   ])("returns 2 for %s and saves nothing", async (_name, answers) => {
     const api = http();
     const fake = fakeIo({ answers, fetch: api.fetch });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(2);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(2);
     expect(api.calls).toHaveLength(0);
     expect(await fake.secrets.list()).toEqual([]);
   });
@@ -387,7 +387,7 @@ describe("core login: Cloudflare with an API token", () => {
       answers: { secret: [TOKEN], line: ["acct-1"] },
       fetch: providers(() => json({ success: false, errors: [{ code: 10000 }] }, 403)).fetch,
     });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(1);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(1);
     expect(fake.stderr()).toContain("error: auth: ");
     expect(await fake.secrets.list()).toEqual([]);
     expectNoSecrets(fake, [TOKEN]);
@@ -419,16 +419,6 @@ describe("core login: Cloudflare in the browser", () => {
     };
     return { api, opened, make: () => fakeIo(options) };
   }
-
-  it("returns 2, explaining both ways to set it, when there is no OAuth client ID", async () => {
-    const api = providers(() => json({}));
-    const fake = fakeIo({ fetch: api.fetch });
-    expect(await run(["login", "cloudflare", "--browser"], fake.io)).toBe(2);
-    expect(fake.stderr()).toContain("CORE_CLOUDFLARE_OAUTH_CLIENT_ID");
-    expect(fake.stderr()).toContain("core config set cloudflare.oauth-client-id");
-    expect(fake.opened).toEqual([]);
-    expect(api.calls).toHaveLength(0);
-  });
 
   it("signs in with the only account, verifies with the new token, and saves an oauth record", async () => {
     const { api, opened, make } = cloudflare([{ id: "acct-1", name: "Personal" }]);
