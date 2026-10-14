@@ -7,16 +7,32 @@
       "@core/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./testing": {
+      "@core/source": "./src/testing/store-contract.ts",
+      "types": "./dist/testing/store-contract.d.ts",
+      "import": "./dist/testing/store-contract.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
+    "build": "tsdown src/index.ts src/testing/store-contract.ts --format esm --dts --clean --no-fixed-extension",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
   "dependencies": {
     "@core/contracts": "workspace:*"
+  },
+  "peerDependencies": {
+    "vitest": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vitest": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "vitest": "^5.0.0"
   }
 }
