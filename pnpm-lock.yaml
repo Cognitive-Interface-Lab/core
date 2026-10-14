@@ -316,6 +316,9 @@ importers:
       '@core/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../graph
       '@core/models':
         specifier: workspace:*
         version: link:../models
