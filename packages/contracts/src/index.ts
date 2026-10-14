@@ -5,3 +5,4 @@ export * from "./models.js";
 export * from "./stream.js";
 export * from "./turn.js";
 export * from "./json-schema.js";
+export * from "./credentials.js";

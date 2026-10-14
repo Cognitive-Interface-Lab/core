@@ -22,13 +22,19 @@ import {
   type ModelMessage,
   type ToolSet,
 } from "ai";
-import type { CredentialStore } from "../credentials.js";
+import type { CredentialStore, Credentials } from "../credentials.js";
 import type { ChatOptions, ModelProvider } from "../provider.js";
 import type { Preset } from "./presets.js";
 
 const DEFAULT_CAPABILITIES: ModelCapabilities = { streaming: true, tools: true, vision: false };
 const MAX_MESSAGE_LENGTH = 300;
 const MIN_SECRET_LENGTH = 4;
+const ACCOUNT_PLACEHOLDER = "{accountId}";
+const CLOUDFLARE_BASE_SUFFIX = "/ai/v1";
+const CLOUDFLARE_SEARCH_SUFFIX = "/ai/models/search";
+const CLOUDFLARE_PAGE_SIZE = 100;
+const CLOUDFLARE_MAX_PAGES = 10;
+const MAX_BODY_SNIPPET = 200;
 
 const UNAVAILABLE_CAUSE_CODES = new Set([
   "ECONNREFUSED",
@@ -153,14 +159,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
 
   async #resolve(modelId: string): Promise<Resolved> {
     const credentials = await this.#credentials.get(this.id);
-    const baseURL = credentials?.baseURL ?? this.#preset?.baseURL;
-    if (!baseURL) {
-      throw new CoreError("bad_request", `${this.id}: no base URL configured`, { provider: this.id });
-    }
-    const apiKey = credentials?.apiKey;
-    if (this.#preset?.requiresKey && !apiKey) {
-      throw new CoreError("auth", `${this.id}: no API key configured`, { provider: this.id });
-    }
+    const { baseURL, apiKey, secrets } = this.#connection(credentials);
     const provider = createOpenAICompatible({
       name: this.id,
       baseURL,
@@ -169,10 +168,117 @@ export class OpenAICompatibleProvider implements ModelProvider {
       ...(credentials?.headers ? { headers: credentials.headers } : {}),
       ...(this.#fetch ? { fetch: this.#fetch } : {}),
     });
+    return { model: provider.chatModel(modelId), secrets };
+  }
+
+  /**
+   * Where to send requests and with which key. An explicit `credentials.baseURL` wins; otherwise
+   * `{accountId}` in the preset URL is filled from `credentials.accountId`.
+   */
+  #connection(credentials: Credentials | undefined): {
+    baseURL: string;
+    apiKey: string | undefined;
+    secrets: string[];
+  } {
+    let baseURL = credentials?.baseURL ?? this.#preset?.baseURL;
+    if (!baseURL) {
+      throw new CoreError("bad_request", `${this.id}: no base URL configured`, { provider: this.id });
+    }
+    if (credentials?.baseURL === undefined && baseURL.includes(ACCOUNT_PLACEHOLDER)) {
+      if (!credentials?.accountId) {
+        throw new CoreError("auth", `${this.id}: no account ID configured`, { provider: this.id });
+      }
+      baseURL = baseURL.split(ACCOUNT_PLACEHOLDER).join(encodeURIComponent(credentials.accountId));
+    }
+    const apiKey = credentials?.apiKey;
+    if (this.#preset?.requiresKey && !apiKey) {
+      throw new CoreError("auth", `${this.id}: no API key configured`, { provider: this.id });
+    }
     const secrets = [apiKey, ...Object.values(credentials?.headers ?? {})].filter(
       (value): value is string => typeof value === "string" && value.length >= MIN_SECRET_LENGTH,
     );
-    return { model: provider.chatModel(modelId), secrets };
+    return { baseURL, apiKey, secrets };
+  }
+
+  async listModels(opts?: ChatOptions): Promise<string[]> {
+    let secrets: string[] = [];
+    try {
+      const credentials = await this.#credentials.get(this.id);
+      const connection = this.#connection(credentials);
+      secrets = connection.secrets;
+      const headers: Record<string, string> = { ...credentials?.headers };
+      if (connection.apiKey) headers.Authorization = `Bearer ${connection.apiKey}`;
+      const get = (url: string) => this.#getJson(url, headers, opts?.signal);
+
+      const ids: unknown[] = [];
+      if (this.#preset?.models === "cloudflare") {
+        if (!connection.baseURL.endsWith(CLOUDFLARE_BASE_SUFFIX)) {
+          throw new CoreError("bad_request", `${this.id}: cannot list models for this base URL`, {
+            provider: this.id,
+          });
+        }
+        const search = `${connection.baseURL.slice(0, -CLOUDFLARE_BASE_SUFFIX.length)}${CLOUDFLARE_SEARCH_SUFFIX}`;
+        for (let page = 1; page <= CLOUDFLARE_MAX_PAGES; page++) {
+          const body = await get(`${search}?task=Text%20Generation&per_page=${CLOUDFLARE_PAGE_SIZE}&page=${page}`);
+          const items = listField(this.id, body, "result");
+          for (const item of items) ids.push(field(item, "name"));
+          if (items.length < CLOUDFLARE_PAGE_SIZE) break;
+        }
+      } else {
+        const body = await get(`${connection.baseURL.replace(/\/+$/, "")}/models`);
+        for (const item of listField(this.id, body, "data")) ids.push(field(item, "id"));
+      }
+      if (!ids.every((id): id is string => typeof id === "string" && id.length > 0)) {
+        throw malformedModels(this.id);
+      }
+      return [...new Set(ids)].sort();
+    } catch (error) {
+      throw this.#toListError(error, opts?.signal, secrets);
+    }
+  }
+
+  async #getJson(url: string, headers: Record<string, string>, signal: AbortSignal | undefined): Promise<unknown> {
+    const response = await (this.#fetch ?? fetch)(url, {
+      method: "GET",
+      headers,
+      ...(signal ? { signal } : {}),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const snippet = text.replace(/\s+/g, " ").trim().slice(0, MAX_BODY_SNIPPET);
+      throw new CoreError(
+        codeForStatus(response.status),
+        `${this.id}: HTTP ${response.status}${snippet ? `: ${snippet}` : ""}`,
+        { provider: this.id, details: { status: response.status } },
+      );
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw malformedModels(this.id);
+    }
+  }
+
+  /** Like `#toCoreError`, for failures of a plain `fetch` rather than the AI SDK. */
+  #toListError(error: unknown, signal: AbortSignal | undefined, secrets: string[]): CoreError {
+    const fail = (code: ErrorCode, summary: string, details?: Record<string, unknown>) =>
+      new CoreError(code, truncate(redact(`${this.id}: ${summary}`, secrets)), {
+        provider: this.id,
+        ...(details ? { details } : {}),
+      });
+    if (CoreError.is(error)) {
+      return new CoreError(error.code, truncate(redact(error.message, secrets)), {
+        provider: this.id,
+        ...(error.details ? { details: error.details } : {}),
+      });
+    }
+    const cancelled = cancellationCode(error, signal);
+    if (cancelled) return fail(cancelled, cancelled === "timeout" ? "request timed out" : "request aborted");
+    const causeCode = findCauseCode(error);
+    const message = error instanceof Error ? error.message : "unexpected failure";
+    if (causeCode && TIMEOUT_CAUSE_CODES.has(causeCode)) return fail("timeout", `connection timed out: ${message}`);
+    if (causeCode && UNAVAILABLE_CAUSE_CODES.has(causeCode)) return fail("unavailable", `cannot connect: ${message}`);
+    return fail("unknown", message);
   }
 
   #callOptions(req: ChatRequest, opts: ChatOptions | undefined) {
@@ -230,6 +336,22 @@ function codeForStatus(status: number): ErrorCode {
   if (status === 429) return "rate_limit";
   if (status >= 500) return "unavailable";
   return "unknown";
+}
+
+function malformedModels(providerId: string): CoreError {
+  return new CoreError("unknown", `${providerId}: unexpected response to the model listing`, {
+    provider: providerId,
+  });
+}
+
+function listField(providerId: string, body: unknown, key: string): unknown[] {
+  const value = typeof body === "object" && body !== null ? (body as Record<string, unknown>)[key] : undefined;
+  if (!Array.isArray(value)) throw malformedModels(providerId);
+  return value;
+}
+
+function field(item: unknown, key: string): unknown {
+  return typeof item === "object" && item !== null ? (item as Record<string, unknown>)[key] : undefined;
 }
 
 function abortError(): Error {
