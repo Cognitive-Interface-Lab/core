@@ -1,0 +1,30 @@
+{
+  "name": "@core/graph-postgres",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@core/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/graph": "workspace:*"
+  },
+  "peerDependencies": {
+    "drizzle-orm": ">=0.45.0 <1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.9",
+    "drizzle-orm": "^0.45.4"
+  }
+}
