@@ -131,7 +131,7 @@ export class ProcessGraph {
         sourceBranchId: opts.source,
         targetBranchId: opts.target,
         strategy: opts.strategy,
-        ...(opts.strategy === "summary" && { message: opts.message }),
+        ...("message" in opts && { message: opts.message }),
       },
     ]);
     return nodeId;
