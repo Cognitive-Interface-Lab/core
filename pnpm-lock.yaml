@@ -264,6 +264,12 @@ importers:
         specifier: ^2.1.1
         version: 2.1.1
 
+  packages/graph:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+
   packages/models:
     dependencies:
       '@ai-sdk/openai-compatible':
