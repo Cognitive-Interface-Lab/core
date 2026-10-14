@@ -1,6 +1,8 @@
 export type Credentials = {
   apiKey?: string;
   baseURL?: string;
+  /** Account that owns the key, for providers whose address contains it (Cloudflare Workers AI). */
+  accountId?: string;
   headers?: Record<string, string>;
 };
 
@@ -12,6 +14,7 @@ function copyCredentials(credentials: Credentials): Credentials {
   const copy: Credentials = {};
   if (credentials.apiKey !== undefined) copy.apiKey = credentials.apiKey;
   if (credentials.baseURL !== undefined) copy.baseURL = credentials.baseURL;
+  if (credentials.accountId !== undefined) copy.accountId = credentials.accountId;
   if (credentials.headers !== undefined) copy.headers = { ...credentials.headers };
   return copy;
 }
@@ -43,7 +46,7 @@ export class MemoryCredentialStore implements CredentialStore {
   }
 }
 
-/** Reads `<prefix><ID>_API_KEY` and `<prefix><ID>_BASE_URL`; an empty value counts as unset. */
+/** Reads `<prefix><ID>_API_KEY`, `_BASE_URL` and `_ACCOUNT_ID`; an empty value counts as unset. */
 export class EnvCredentialStore implements CredentialStore {
   readonly #env: Record<string, string | undefined>;
   readonly #prefix: string;
@@ -57,10 +60,12 @@ export class EnvCredentialStore implements CredentialStore {
     const id = providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
     const apiKey = this.#env[`${this.#prefix}${id}_API_KEY`] || undefined;
     const baseURL = this.#env[`${this.#prefix}${id}_BASE_URL`] || undefined;
-    if (apiKey === undefined && baseURL === undefined) return undefined;
+    const accountId = this.#env[`${this.#prefix}${id}_ACCOUNT_ID`] || undefined;
+    if (apiKey === undefined && baseURL === undefined && accountId === undefined) return undefined;
     const credentials: Credentials = {};
     if (apiKey !== undefined) credentials.apiKey = apiKey;
     if (baseURL !== undefined) credentials.baseURL = baseURL;
+    if (accountId !== undefined) credentials.accountId = accountId;
     return credentials;
   }
 
