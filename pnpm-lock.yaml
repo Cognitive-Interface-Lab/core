@@ -197,6 +197,27 @@ importers:
         specifier: ^5.0.0
         version: 5.0.3(@types/node@22.20.5)(vite@8.3.4(@types/node@22.20.5)(esbuild@0.28.2)(tsx@4.23.15)(yaml@2.9.1))
 
+  examples/branching-chat:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../../packages/graph
+      '@core/graph-sqlite':
+        specifier: workspace:*
+        version: link:../../packages/graph-sqlite
+      '@core/models':
+        specifier: workspace:*
+        version: link:../../packages/models
+      '@core/runtime':
+        specifier: workspace:*
+        version: link:../../packages/runtime
+      '@core/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
+
   examples/hello-agent:
     dependencies:
       '@core/contracts':
