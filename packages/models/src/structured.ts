@@ -1,4 +1,4 @@
-import { CoreError } from "@core/contracts";
+import { CoreError, type FinishReason } from "@core/contracts";
 import { z } from "zod";
 
 /**
@@ -11,12 +11,28 @@ export function outputSchemaFrom(schema: z.ZodType): Record<string, unknown> {
   return result;
 }
 
+const CUT_OFF_MESSAGE = 'structured output was cut off at the output-token limit (finish reason "length")';
+
 /**
  * Parses and validates structured output from a model against a JSON Schema.
  * Strips optional markdown code fence (```json ... ``` or ``` ... ```) before parsing.
  * Throws `CoreError` with code "unknown" on invalid JSON or schema mismatch.
+ *
+ * When the text fails to parse or to match and the provider finished with `"length"`, the reply was
+ * cut off at the output-token limit: the error then says so and carries `details.finishReason`, for
+ * both failure kinds. Text that parses and matches is returned whatever the finish reason, and any
+ * other (or no) finish reason keeps the invalid-JSON and mismatch messages.
  */
-export function parseStructuredOutput(outputSchema: Record<string, unknown>, text: string): unknown {
+export function parseStructuredOutput(
+  outputSchema: Record<string, unknown>,
+  text: string,
+  finishReason?: FinishReason,
+): unknown {
+  const fail = (message: string): CoreError =>
+    finishReason === "length"
+      ? new CoreError("unknown", CUT_OFF_MESSAGE, { details: { finishReason } })
+      : new CoreError("unknown", message);
+
   let json = text.trim();
 
   // Strip optional markdown code fence
@@ -30,7 +46,7 @@ export function parseStructuredOutput(outputSchema: Record<string, unknown>, tex
   try {
     parsed = JSON.parse(json);
   } catch {
-    throw new CoreError("unknown", "structured output is not valid JSON");
+    throw fail("structured output is not valid JSON");
   }
 
   // Validate with zod
@@ -40,7 +56,7 @@ export function parseStructuredOutput(outputSchema: Record<string, unknown>, tex
     const issues = result.error.issues
       .map((issue) => `${issue.path.map(String).join(".") || "(root)"}: ${issue.message}`)
       .join("; ");
-    throw new CoreError("unknown", `structured output does not match outputSchema: ${issues}`);
+    throw fail(`structured output does not match outputSchema: ${issues}`);
   }
 
   return result.data;
