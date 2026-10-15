@@ -2,7 +2,7 @@ import { CoreError, parseModelRef } from "@core/contracts";
 import { loadConfig, saveConfig, splitRoute, type Config } from "../config.js";
 import { UsageError, type Command, type Io } from "../run.js";
 
-const KEYS = ["route", "timeout-ms", "cloudflare.oauth-client-id"] as const;
+export const KEYS = ["route", "timeout-ms", "cloudflare.oauth-client-id"] as const;
 type Key = (typeof KEYS)[number];
 
 export const configCommand: Command = {
@@ -12,7 +12,7 @@ export const configCommand: Command = {
 keys:
   route                       models to try in order, comma-separated provider:model
   timeout-ms                  per-attempt timeout in milliseconds
-  cloudflare.oauth-client-id  OAuth client ID for "core login cloudflare --browser" (public)`,
+  cloudflare.oauth-client-id  overrides the built-in OAuth client ID for "core login cloudflare"`,
   async run(args: string[], io: Io): Promise<number> {
     const [action, key, value, ...extra] = args;
 

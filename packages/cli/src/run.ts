@@ -4,9 +4,11 @@ import type { SecretStore } from "@core/credentials";
 import { logoutCommand, statusCommand } from "./commands/account.js";
 import { askCommand } from "./commands/ask.js";
 import { chatCommand } from "./commands/chat.js";
+import { completionCommand } from "./commands/completion.js";
 import { configCommand } from "./commands/config.js";
 import { loginCommand } from "./commands/login.js";
 import { modelsCommand } from "./commands/models.js";
+import { completeRoute } from "./completion/route.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
 export type Io = {
@@ -70,11 +72,22 @@ export const commands: Record<string, Command> = {
   get models() {
     return modelsCommand;
   },
+  get completion() {
+    return completionCommand;
+  },
 };
 
 export async function run(argv: string[], io: Io): Promise<number> {
   // A leading "--" only marks the end of the launcher's own options (`pnpm start -- --help`); skip it.
   const [name, ...args] = argv[0] === "--" ? argv.slice(1) : argv;
+
+  // Hidden: the completion script calls this on Tab. Not a command, so help never lists it.
+  if (name === "__complete") {
+    if (args[0] === "route") {
+      for (const candidate of await completeRoute(args[1] ?? "", io)) io.stdout.write(`${candidate}\n`);
+    }
+    return 0;
+  }
 
   if (name === undefined || name === "--help" || name === "-h") {
     io.stdout.write(overallUsage());

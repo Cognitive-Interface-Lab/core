@@ -14,6 +14,26 @@ import { UsageError, type Command, type Io } from "../run.js";
 
 const VERIFY_TIMEOUT_MS = 15_000;
 
+/** Trilix's public Cloudflare OAuth client (PKCE, no secret); core's terminal callback is registered on it. */
+export const DEFAULT_CLOUDFLARE_OAUTH_CLIENT_ID = "f399a49cc3e2c96f6d1b06ef2b977c1b";
+
+/** The page where each keyed provider creates an API key. */
+export const KEY_PAGES: Record<string, string> = {
+  openai: "https://platform.openai.com/api-keys",
+  groq: "https://console.groq.com/keys",
+  openrouter: "https://openrouter.ai/settings/keys",
+  cloudflare: "https://dash.cloudflare.com/profile/api-tokens",
+  vercel: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+};
+
+const KEY_LABELS: Record<string, string> = {
+  openai: "OpenAI",
+  groq: "Groq",
+  openrouter: "OpenRouter",
+  cloudflare: "Cloudflare",
+  vercel: "Vercel AI Gateway",
+};
+
 const OPTIONS = {
   key: { type: "boolean" },
   browser: { type: "boolean" },
@@ -26,16 +46,16 @@ export const loginCommand: Command = {
   usage: `<provider> [--key] [--browser] [--account-id <id>] [--no-open]
 
 providers:
-  openrouter   browser sign-in (default), or --key to paste an API key
-  cloudflare   API token + account ID (default), or --browser with an OAuth client ID
-  openai, groq paste an API key
-  ollama       needs no sign-in
+  openrouter            browser sign-in (default), or --key to paste an API key
+  cloudflare            browser sign-in (default), or --key to paste an API token and account ID
+  openai, groq, vercel  paste an API key; core opens the page that creates one
+  ollama                needs no sign-in
 
 options:
   --key               paste an API key or token instead of signing in with the browser
-  --browser           sign in with the browser (cloudflare: needs cloudflare.oauth-client-id)
+  --browser           sign in with the browser (the default for openrouter and cloudflare)
   --account-id <id>   Cloudflare account ID (skips the question)
-  --no-open           print the sign-in URL without opening the browser`,
+  --no-open           print the page's URL without opening the browser`,
 
   async run(args: string[], io: Io): Promise<number> {
     const { provider, flags } = parse(args);
@@ -104,9 +124,10 @@ async function obtain(provider: string, flags: Flags, io: Io, signal: AbortSigna
   if (provider === "openrouter" && !flags.key) {
     return signInOpenRouter({ openUrl: opener(provider, flags, io), fetch: io.fetch, signal });
   }
-  if (provider === "cloudflare" && flags.browser) {
+  if (provider === "cloudflare" && !flags.key) {
     return browserCloudflare(flags, io, signal);
   }
+  await showKeyPage(provider, flags, io);
   if (provider === "cloudflare") {
     const apiKey = nonEmpty(await io.prompt.secret("Cloudflare API token (Workers AI read + edit): "));
     const accountId = flags.accountId?.trim() || nonEmpty(await io.prompt.line("Cloudflare account ID: "));
@@ -117,12 +138,10 @@ async function obtain(provider: string, flags: Flags, io: Io, signal: AbortSigna
 }
 
 async function browserCloudflare(flags: Flags, io: Io, signal: AbortSignal): Promise<StoredCredential> {
-  const clientId = io.env["CORE_CLOUDFLARE_OAUTH_CLIENT_ID"] || (await loadConfig(io.configDir)).cloudflare?.oauthClientId;
-  if (!clientId) {
-    throw new UsageError(
-      "no Cloudflare OAuth client ID; set CORE_CLOUDFLARE_OAUTH_CLIENT_ID or run: core config set cloudflare.oauth-client-id <id>",
-    );
-  }
+  const clientId =
+    io.env["CORE_CLOUDFLARE_OAUTH_CLIENT_ID"] ||
+    (await loadConfig(io.configDir)).cloudflare?.oauthClientId ||
+    DEFAULT_CLOUDFLARE_OAUTH_CLIENT_ID;
   const { credential, accounts } = await signInCloudflare({
     clientId,
     openUrl: opener("cloudflare", flags, io),
@@ -152,6 +171,14 @@ async function browserCloudflare(flags: Flags, io: Io, signal: AbortSignal): Pro
     accountId = chosen.id;
   }
   return { ...credential, accountId };
+}
+
+/** Before asking for a key in a terminal: print, and open, the page that creates one. */
+async function showKeyPage(provider: string, flags: Flags, io: Io): Promise<void> {
+  const url = KEY_PAGES[provider];
+  if (!io.interactive || url === undefined) return;
+  io.stderr.write(`Create a ${KEY_LABELS[provider] ?? provider} API key on this page, then paste it below:\n${url}\n`);
+  if (!flags.noOpen) await io.openUrl(url);
 }
 
 function opener(provider: string, flags: Flags, io: Io): OpenUrl {

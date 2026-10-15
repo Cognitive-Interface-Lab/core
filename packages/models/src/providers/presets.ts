@@ -17,4 +17,5 @@ export const PRESETS: Record<string, Preset> = {
     requiresKey: true,
     models: "cloudflare",
   },
+  vercel: { baseURL: "https://ai-gateway.vercel.sh/v1", requiresKey: true },
 };
