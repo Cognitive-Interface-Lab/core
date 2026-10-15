@@ -7,6 +7,7 @@ import {
   formatModelRef,
   type AskResult,
   type CoreErrorShape,
+  type FinishReason,
   type Message,
   type ModelRef,
   type RouteAttempt,
@@ -21,7 +22,7 @@ import {
 } from "@core/models";
 import { runTurn } from "@core/runtime";
 import { ToolRegistry } from "@core/tools";
-import { parseTimeout, readSchemaFile, readSystemFile } from "../ask-input.js";
+import { parseMaxOutputTokens, parseTimeout, readSchemaFile, readSystemFile } from "../ask-input.js";
 import { loadConfig, resolveRoute, type Config } from "../config.js";
 import { openGateway } from "../setup.js";
 import { UsageError, type Command, type Io } from "../run.js";
@@ -93,6 +94,7 @@ export function chooseRoute(flag: string | undefined, env: Io["env"], config: Co
 export async function printTurn(events: AsyncIterable<TurnEvent>, io: Io, log?: AttemptLog): Promise<TurnFinish> {
   let via: ModelRef | undefined;
   let wroteText = false;
+  let lastFinishReason: FinishReason | undefined;
   let failure: { code: string; message: string; attempts: unknown } | undefined;
   let finish: TurnFinish | undefined;
 
@@ -104,6 +106,9 @@ export async function printTurn(events: AsyncIterable<TurnEvent>, io: Io, log?: 
       case "text-delta":
         wroteText = true;
         io.stdout.write(event.text);
+        break;
+      case "finish":
+        lastFinishReason = event.finishReason;
         break;
       case "error":
         failure = { code: event.error.code, message: event.error.message, attempts: event.error.details?.["attempts"] };
@@ -120,6 +125,7 @@ export async function printTurn(events: AsyncIterable<TurnEvent>, io: Io, log?: 
   if (wroteText || finish.reason === "stop") io.stdout.write("\n");
   if (finish.reason === "stop") {
     for (const failed of log?.failures ?? []) io.stderr.write(attemptLine(failed.attempt, failed.model, failed.error));
+    if (lastFinishReason === "length") io.stderr.write(CUT_OFF_NOTE);
     if (via) io.stderr.write(`[${formatModelRef(via)}]\n`);
   } else if (failure && failure.code !== "aborted") {
     const reported = failedAttemptLines(failure.attempts);
@@ -131,6 +137,9 @@ export async function printTurn(events: AsyncIterable<TurnEvent>, io: Io, log?: 
   }
   return finish;
 }
+
+const CUT_OFF_NOTE = 'note: the answer was cut off at the output-token limit (finish reason "length")\n';
+const CUT_OFF_HINT = "hint: raise --max-output-tokens\n";
 
 function attemptLine(attempt: number, model: ModelRef, error: CoreErrorShape): string {
   return `attempt ${attempt} ${formatModelRef(model)}: ${error.code}: ${error.message}\n`;
@@ -152,6 +161,11 @@ function failedAttemptLines(attempts: unknown): string[] {
   return lines;
 }
 
+/** Whether a failed attempt in the router's log ended because the reply hit the output-token limit. */
+function cutOffAttempt(attempts: unknown): boolean {
+  return routeAttempts(attempts).some((attempt) => !attempt.ok && attempt.error?.details?.["finishReason"] === "length");
+}
+
 /** How a call through `router.chat` ended. */
 type ChatOutcome =
   | { kind: "answered"; response: RoutedResponse }
@@ -163,11 +177,20 @@ async function chatOnce(
   router: ModelRouter,
   steps: RouteStep[],
   messages: Message[],
-  outputSchema: Record<string, unknown> | undefined,
+  request: { outputSchema: Record<string, unknown> | undefined; maxOutputTokens: number | undefined },
   signal: AbortSignal,
 ): Promise<ChatOutcome> {
+  const { outputSchema, maxOutputTokens } = request;
   try {
-    const response = await router.chat({ messages, ...(outputSchema !== undefined && { outputSchema }) }, steps, { signal });
+    const response = await router.chat(
+      {
+        messages,
+        ...(outputSchema !== undefined && { outputSchema }),
+        ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+      },
+      steps,
+      { signal },
+    );
     return signal.aborted ? { kind: "interrupted" } : { kind: "answered", response };
   } catch (error) {
     if (signal.aborted) return { kind: "interrupted" };
@@ -248,6 +271,7 @@ function reportChat(outcome: ChatOutcome, io: Io, mode: { json: boolean; schema:
     case "failed": {
       for (const line of failedAttemptLines(outcome.error.details?.["attempts"])) io.stderr.write(line);
       io.stderr.write(`error: ${outcome.error.code}: ${outcome.error.message}\n`);
+      if (cutOffAttempt(outcome.error.details?.["attempts"])) io.stderr.write(CUT_OFF_HINT);
       return 1;
     }
     case "answered": {
@@ -256,6 +280,7 @@ function reportChat(outcome: ChatOutcome, io: Io, mode: { json: boolean; schema:
       response.attempts.forEach((attempt, index) => {
         if (!attempt.ok && attempt.error) io.stderr.write(attemptLine(index + 1, attempt.model, attempt.error));
       });
+      if (!mode.schema && response.finishReason === "length") io.stderr.write(CUT_OFF_NOTE);
       io.stderr.write(`[${formatModelRef(response.model)}]\n`);
       return 0;
     }
@@ -268,6 +293,7 @@ const OPTIONS = {
   schema: { type: "string" },
   json: { type: "boolean" },
   timeout: { type: "string" },
+  "max-output-tokens": { type: "string" },
 } as const;
 
 function parseAskArgs(args: string[]) {
@@ -280,7 +306,7 @@ function parseAskArgs(args: string[]) {
 
 export const askCommand: Command = {
   summary: "ask one question and print the answer",
-  usage: `[--model <provider:model,...>] [--system-file <file>] [--schema <file>] [--json] [--timeout <ms>] <prompt...>
+  usage: `[--model <provider:model,...>] [--system-file <file>] [--schema <file>] [--json] [--timeout <ms>] [--max-output-tokens <n>] <prompt...>
 
 The prompt is the remaining arguments, or standard input when piped and no arguments are given.
 Models are tried in order until one answers; without --model the route is CORE_ROUTE, then
@@ -302,7 +328,12 @@ arguments are parsed prints a result, usage errors included (code "bad_request",
 the exit codes do not change. The answer is not streamed.
 
 --timeout sets the time limit in milliseconds for each model in the route, in place of timeoutMs
-from the config. It must be a positive whole number, otherwise it is a usage error (exit 2).`,
+from the config. It must be a positive whole number, otherwise it is a usage error (exit 2).
+
+--max-output-tokens limits the output tokens of each model request, for every step of the route.
+Without it no limit is sent and the provider's default applies (some providers, such as
+Cloudflare, stop a reply early). It must be a positive whole number, otherwise it is a usage
+error (exit 2).`,
   async run(args: string[], io: Io): Promise<number> {
     // A failure to parse the arguments prints no result: `--json` is not known yet.
     const parsed = parseAskArgs(args);
@@ -320,7 +351,7 @@ from the config. It must be a positive whole number, otherwise it is a usage err
 type AskArgs = ReturnType<typeof parseAskArgs>;
 
 async function ask(parsed: AskArgs, io: Io): Promise<number> {
-  const { model: modelFlag, "system-file": systemFile, schema: schemaFile, json, timeout } = parsed.values;
+  const { model: modelFlag, "system-file": systemFile, schema: schemaFile, json, timeout, "max-output-tokens": maxOutputTokensFlag } = parsed.values;
 
   const config = await loadConfig(io.configDir);
   const route = chooseRoute(modelFlag, io.env, config);
@@ -332,6 +363,7 @@ async function ask(parsed: AskArgs, io: Io): Promise<number> {
   const system = systemFile === undefined ? undefined : await readSystemFile(systemFile);
   const outputSchema = schemaFile === undefined ? undefined : await readSchemaFile(schemaFile);
   const timeoutMs = timeout === undefined ? undefined : parseTimeout(timeout);
+  const maxOutputTokens = maxOutputTokensFlag === undefined ? undefined : parseMaxOutputTokens(maxOutputTokensFlag);
 
   const messages: Message[] = [
     ...(system === undefined ? [] : [{ role: "system" as const, content: system }]),
@@ -344,7 +376,7 @@ async function ask(parsed: AskArgs, io: Io): Promise<number> {
   const unsubscribe = io.onInterrupt(() => interrupted.abort());
   try {
     if (outputSchema !== undefined || json === true) {
-      const outcome = await chatOnce(router, steps, messages, outputSchema, interrupted.signal);
+      const outcome = await chatOnce(router, steps, messages, { outputSchema, maxOutputTokens }, interrupted.signal);
       return reportChat(outcome, io, { json: json === true, schema: outputSchema !== undefined });
     }
     const events = runTurn({
@@ -354,6 +386,7 @@ async function ask(parsed: AskArgs, io: Io): Promise<number> {
       channel: "local",
       messages,
       signal: interrupted.signal,
+      ...(maxOutputTokens !== undefined && { maxOutputTokens }),
     });
     const finish = await printTurn(events, io, log);
     if (interrupted.signal.aborted) return 130;

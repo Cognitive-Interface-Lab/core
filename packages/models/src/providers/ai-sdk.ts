@@ -128,7 +128,7 @@ export abstract class AiSdkProvider implements ModelProvider {
         message,
         finishReason: result.finishReason satisfies FinishReason,
         usage: toUsage(result.usage),
-        ...(req.outputSchema !== undefined ? { output: parseStructuredOutput(req.outputSchema, result.text) } : {}),
+        ...(req.outputSchema !== undefined ? { output: parseStructuredOutput(req.outputSchema, result.text, result.finishReason) } : {}),
       };
     } catch (error) {
       const recovered = this.#recoverStructured(req, error);
@@ -145,7 +145,7 @@ export abstract class AiSdkProvider implements ModelProvider {
   #recoverStructured(req: ChatRequest, error: unknown): ChatResponse | undefined {
     if (req.outputSchema === undefined || !NoObjectGeneratedError.isInstance(error)) return undefined;
     if (error.text === undefined) return undefined;
-    const output = parseStructuredOutput(req.outputSchema, error.text);
+    const output = parseStructuredOutput(req.outputSchema, error.text, error.finishReason);
     return {
       model: req.model,
       message: { role: "assistant", content: error.text },

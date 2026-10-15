@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseTimeout, readSchemaFile, readSystemFile } from "../src/ask-input.js";
+import { parseMaxOutputTokens, parseTimeout, readSchemaFile, readSystemFile } from "../src/ask-input.js";
 import { UsageError } from "../src/run.js";
 
 let dir: string;
@@ -170,6 +170,32 @@ describe("parseTimeout", () => {
       parseTimeout(value);
     } catch (error) {
       expect((error as Error).message).toContain("--timeout");
+    }
+  });
+});
+
+describe("parseMaxOutputTokens", () => {
+  it.each([
+    ["1", 1],
+    ["8192", 8192],
+  ])("accepts %s", (value, expected) => {
+    expect(parseMaxOutputTokens(value)).toBe(expected);
+  });
+
+  it.each([
+    ["zero", "0"],
+    ["a negative number", "-1"],
+    ["a word", "abc"],
+    ["a fraction", "1.5"],
+    ["an exponent", "1e3"],
+    ["an empty string", ""],
+    ["a value above Number.MAX_SAFE_INTEGER", String(Number.MAX_SAFE_INTEGER + 2)],
+  ])("is a usage error naming the option for %s", (_name, value) => {
+    expect(() => parseMaxOutputTokens(value)).toThrow(UsageError);
+    try {
+      parseMaxOutputTokens(value);
+    } catch (error) {
+      expect((error as Error).message).toContain("--max-output-tokens");
     }
   });
 });

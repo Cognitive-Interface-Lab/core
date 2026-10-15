@@ -9,7 +9,7 @@ import { cleanupFakeIo, fakeIo, type FakeIo, type FakeIoOptions } from "./fake-i
 afterEach(cleanupFakeIo);
 
 const USAGE_LINE =
-  "usage: core ask [--model <provider:model,...>] [--system-file <file>] [--schema <file>] [--json] [--timeout <ms>] <prompt...>";
+  "usage: core ask [--model <provider:model,...>] [--system-file <file>] [--schema <file>] [--json] [--timeout <ms>] [--max-output-tokens <n>] <prompt...>";
 
 const SCHEMA = { type: "object", properties: { answer: { type: "number" } }, required: ["answer"] };
 

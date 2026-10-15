@@ -30,13 +30,24 @@ export async function readSchemaFile(path: string): Promise<Record<string, unkno
   return value as Record<string, unknown>;
 }
 
+/** A positive safe integer written in decimal digits only, or `undefined`. */
+function positiveWholeNumber(value: string): number | undefined {
+  const number = /^[0-9]+$/.test(value) ? Number(value) : Number.NaN;
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined;
+}
+
 /** The `--timeout` value in milliseconds: a positive safe integer written in decimal digits only. */
 export function parseTimeout(value: string): number {
-  const ms = /^[0-9]+$/.test(value) ? Number(value) : Number.NaN;
-  if (!Number.isSafeInteger(ms) || ms <= 0) {
-    throw new UsageError(`--timeout must be a positive whole number of milliseconds, got "${value}"`);
-  }
+  const ms = positiveWholeNumber(value);
+  if (ms === undefined) throw new UsageError(`--timeout must be a positive whole number of milliseconds, got "${value}"`);
   return ms;
+}
+
+/** The `--max-output-tokens` value: a positive safe integer written in decimal digits only. */
+export function parseMaxOutputTokens(value: string): number {
+  const tokens = positiveWholeNumber(value);
+  if (tokens === undefined) throw new UsageError(`--max-output-tokens must be a positive whole number, got "${value}"`);
+  return tokens;
 }
 
 async function readText(option: string, path: string): Promise<string> {

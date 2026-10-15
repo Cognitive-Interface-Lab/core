@@ -60,14 +60,15 @@ export class MockProvider implements ModelProvider {
     const text = turn.text ?? "";
     const message: ChatResponse["message"] = { role: "assistant", content: text };
     if (turn.toolCalls !== undefined) message.toolCalls = turn.toolCalls;
+    const finishReason = this.#finishReason(turn);
     const response: ChatResponse = {
       model: req.model,
       message,
-      finishReason: this.#finishReason(turn),
+      finishReason,
       usage: this.#usage(req, text),
     };
     if (req.outputSchema !== undefined) {
-      response.output = parseStructuredOutput(req.outputSchema, text);
+      response.output = parseStructuredOutput(req.outputSchema, text, finishReason);
     }
     return response;
   }

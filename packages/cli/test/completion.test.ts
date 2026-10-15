@@ -40,7 +40,7 @@ describe("completionSpec", () => {
     const spec = completionSpec();
     expect(spec.commands["login"]?.options).toEqual(["--key", "--browser", "--account-id", "--no-open", "--help"]);
     expect(spec.commands["login"]?.valueOptions).toEqual(["--account-id"]);
-    expect(spec.commands["ask"]?.valueOptions).toEqual(["--model", "--system-file", "--schema", "--timeout"]);
+    expect(spec.commands["ask"]?.valueOptions).toEqual(["--model", "--system-file", "--schema", "--timeout", "--max-output-tokens"]);
     expect(spec.commands["chat"]?.valueOptions).toEqual(["--model", "--system"]);
   });
 
