@@ -1,0 +1,18 @@
+{
+  "name": "@core/example-branching-chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning --conditions=@core/source --import tsx src/main.ts",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/graph": "workspace:*",
+    "@core/graph-sqlite": "workspace:*",
+    "@core/models": "workspace:*",
+    "@core/runtime": "workspace:*",
+    "@core/tools": "workspace:*"
+  }
+}

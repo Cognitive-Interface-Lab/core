@@ -10,6 +10,7 @@ export const ErrorCodeSchema = z.enum([
   "not_found",
   "aborted",
   "unknown",
+  "conflict",
 ]);
 export type ErrorCode = z.infer<typeof ErrorCodeSchema>;
 
