@@ -17,6 +17,7 @@
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
   "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.80",
     "@ai-sdk/openai-compatible": "^3.0.0",
     "@core/contracts": "workspace:*",
     "ai": "^7.0.0",
