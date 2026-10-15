@@ -10,6 +10,19 @@ export const StoredCredentialSchema = z.discriminatedUnion("kind", [
     apiKey: z.string().min(1),
     accountId: z.string().min(1).optional(),
     baseURL: z.url().optional(),
+    /**
+     * The AWS region, which fills `{region}` in a provider address (Claude Platform on AWS).
+     * The pattern matters because the value goes into a hostname.
+     */
+    region: z
+      .string()
+      .regex(/^[a-z0-9-]+$/)
+      .optional(),
+    /**
+     * The workspace the key is scoped to, for providers that name it on every request
+     * (Claude Platform on AWS sends it as `anthropic-workspace-id`).
+     */
+    workspaceId: z.string().min(1).optional(),
   }),
   z.strictObject({
     kind: z.literal("oauth"),
@@ -29,6 +42,13 @@ export const CredentialSummarySchema = z.strictObject({
   providerId: z.string().min(1),
   kind: z.enum(["api-key", "oauth"]),
   accountId: z.string().min(1).optional(),
+  /** The AWS region of a saved key sign-in. Not a secret. */
+  region: z
+    .string()
+    .regex(/^[a-z0-9-]+$/)
+    .optional(),
+  /** The workspace a saved key sign-in is scoped to. Not a secret. */
+  workspaceId: z.string().min(1).optional(),
   expiresAt: z.number().int().nonnegative().optional(),
 });
 export type CredentialSummary = z.infer<typeof CredentialSummarySchema>;
