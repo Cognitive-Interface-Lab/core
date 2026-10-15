@@ -891,7 +891,11 @@ describe("core login: Anthropic", () => {
     expect(lines).toContain("  anthropic             paste an API key; core opens the page that creates one");
     expect(lines).toContain("  anthropic-aws         Claude Platform on AWS: asks for region, workspace ID and API key");
     // The new lines sit at the same column as the existing ones.
-    const column = (name: string) => (lines.find((line) => line.startsWith(`  ${name} `)) ?? "").search(/\S/, name.length + 2);
+    const column = (name: string) => {
+      const line = lines.find((candidate) => candidate.startsWith(`  ${name} `)) ?? "";
+      return 2 + name.length + line.slice(2 + name.length).search(/\S/);
+    };
+    expect(column("openrouter")).toBeGreaterThan(2 + "openrouter".length);
     expect(column("anthropic")).toBe(column("openrouter"));
     expect(column("anthropic-aws")).toBe(column("openrouter"));
   });
