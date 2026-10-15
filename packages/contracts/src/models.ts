@@ -34,6 +34,7 @@ export const ModelCapabilitiesSchema = z.object({
   tools: z.boolean(),
   vision: z.boolean(),
   contextWindow: z.number().int().positive().optional(),
+  structuredOutput: z.boolean().optional(),
 });
 export type ModelCapabilities = z.infer<typeof ModelCapabilitiesSchema>;
 
@@ -60,6 +61,7 @@ export const ChatRequestSchema = z.object({
   toolChoice: z.enum(["auto", "none", "required"]).optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxOutputTokens: z.number().int().positive().optional(),
+  outputSchema: z.record(z.string(), z.unknown()).optional(),
 });
 export type ChatRequest = z.infer<typeof ChatRequestSchema>;
 
@@ -68,5 +70,6 @@ export const ChatResponseSchema = z.object({
   message: AssistantMessageSchema,
   finishReason: FinishReasonSchema,
   usage: UsageSchema,
+  output: z.unknown().optional(),
 });
 export type ChatResponse = z.infer<typeof ChatResponseSchema>;
