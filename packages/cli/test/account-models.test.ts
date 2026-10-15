@@ -126,11 +126,11 @@ describe("core status", () => {
     await store.save("cloudflare", oauth());
 
     expect(await run(["status"], fake.io)).toBe(0);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, renews automatically)");
-    expect(lineFor(fake, "groq")).toBe("groq        from CORE_GROQ_API_KEY");
-    expect(lineFor(fake, "ollama")).toBe("ollama      no sign-in needed (http://127.0.0.1:11434/v1)");
-    expect(lineFor(fake, "openai")).toBe("openai      not signed in");
-    expect(lineFor(fake, "openrouter")).toBe("openrouter  signed in (key)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, renews automatically)");
+    expect(lineFor(fake, "groq")).toBe("groq           from CORE_GROQ_API_KEY");
+    expect(lineFor(fake, "ollama")).toBe("ollama         no sign-in needed (http://127.0.0.1:11434/v1)");
+    expect(lineFor(fake, "openai")).toBe("openai         not signed in");
+    expect(lineFor(fake, "openrouter")).toBe("openrouter     signed in (key)");
     expect(fake.stdout()).toContain("\nCredentials: memory\n");
     expect(fake.stdout()).toContain("Models: ollama:llama3.1, openrouter:openrouter/free\n");
     expect(fake.stderr()).toBe("");
@@ -141,17 +141,26 @@ describe("core status", () => {
     const { fake } = setup();
     await run(["status"], fake.io);
     const lines = fake.stdout().split("\n");
-    const names = lines.slice(0, 6).map((line) => line.split(/\s+/)[0]);
-    expect(names).toEqual(["cloudflare", "groq", "ollama", "openai", "openrouter", "vercel"]);
-    for (const line of lines.slice(0, 6)) expect(line.slice(0, 12).trimEnd()).toBe(line.split(/\s+/)[0]);
-    expect(lines[6]).toBe("");
+    const names = lines.slice(0, 8).map((line) => line.split(/\s+/)[0]);
+    expect(names).toEqual([
+      "anthropic",
+      "anthropic-aws",
+      "cloudflare",
+      "groq",
+      "ollama",
+      "openai",
+      "openrouter",
+      "vercel",
+    ]);
+    for (const line of lines.slice(0, 8)) expect(line.slice(0, 15).trimEnd()).toBe(line.split(/\s+/)[0]);
+    expect(lines[8]).toBe("");
   });
 
   it("shows the account of a saved key", async () => {
     const { fake, store } = setup();
     await store.save("cloudflare", { kind: "api-key", apiKey: "cf-token-333", accountId: "acct-7" });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (key, account acct-7)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (key, account acct-7)");
     expectNoSecrets(fake, ["cf-token-333"]);
   });
 
@@ -159,7 +168,7 @@ describe("core status", () => {
     const { fake, store } = setup();
     await store.save("cloudflare", withoutRefreshToken(minutes(9.5)));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, expires in 10 min)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, expires in 10 min)");
     expectNoSecrets(fake, ["access-secret-aaa"]);
   });
 
@@ -167,28 +176,28 @@ describe("core status", () => {
     const { fake, store } = setup();
     await store.save("cloudflare", withoutRefreshToken(Date.now() - 1000));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  sign-in expired");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     sign-in expired");
   });
 
   it("still says it renews automatically when a refresh token exists past the expiry", async () => {
     const { fake, store } = setup();
     await store.save("cloudflare", oauth({ expiresAt: Date.now() - 1000 }));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, renews automatically)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, renews automatically)");
   });
 
   it("puts an environment variable ahead of a saved sign-in, and names the first variable set", async () => {
     const { fake, store } = setup({ env: { CORE_OPENROUTER_BASE_URL: "https://proxy.example.com/v1", CORE_OPENROUTER_ACCOUNT_ID: "a" } });
     await store.save("openrouter", { kind: "api-key", apiKey: "key-secret-111" });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "openrouter")).toBe("openrouter  from CORE_OPENROUTER_BASE_URL");
+    expect(lineFor(fake, "openrouter")).toBe("openrouter     from CORE_OPENROUTER_BASE_URL");
     expect(fake.stdout()).not.toContain("proxy.example.com");
   });
 
   it("shows Ollama's environment override instead of the default address", async () => {
     const { fake } = setup({ env: { CORE_OLLAMA_BASE_URL: "http://gpu-box:11434/v1" } });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "ollama")).toBe("ollama      from CORE_OLLAMA_BASE_URL");
+    expect(lineFor(fake, "ollama")).toBe("ollama         from CORE_OLLAMA_BASE_URL");
   });
 
   it("says the models are not set when there is no route", async () => {
@@ -363,5 +372,128 @@ describe("core models", () => {
       await run(["models"], fake.io);
       expect(fake.interruptHandlers()).toBe(0);
     });
+  });
+});
+
+describe("core status: Anthropic", () => {
+  const rowFor = (fake: FakeIo, provider: string) =>
+    fake.stdout().split("\n").find((line) => line.split(/\s+/)[0] === provider);
+
+  it("shows the workspace and region of a saved anthropic-aws key", async () => {
+    const { fake, store } = setup();
+    await store.save("anthropic-aws", { kind: "api-key", apiKey: "sk-aws-secret-311", workspaceId: "wrkspc_01", region: "us-west-2" });
+    expect(await run(["status"], fake.io)).toBe(0);
+    expect(rowFor(fake, "anthropic-aws")).toBe("anthropic-aws  signed in (key, workspace wrkspc_01, region us-west-2)");
+    expect(rowFor(fake, "anthropic")).toBe("anthropic      not signed in");
+    expectNoSecrets(fake, ["sk-aws-secret-311"]);
+  });
+
+  it("lists the parts in the order key, account, workspace, region, each only when set", async () => {
+    const { fake, store } = setup();
+    await store.save("anthropic-aws", { kind: "api-key", apiKey: "sk-aws-secret-312", accountId: "acct-9", workspaceId: "wrkspc_01", region: "us-west-2" });
+    await store.save("anthropic", { kind: "api-key", apiKey: "sk-ant-secret-312" });
+    await store.save("cloudflare", { kind: "api-key", apiKey: "cf-token-312", accountId: "acct-7" });
+    await run(["status"], fake.io);
+    expect(rowFor(fake, "anthropic-aws")).toBe("anthropic-aws  signed in (key, account acct-9, workspace wrkspc_01, region us-west-2)");
+    expect(rowFor(fake, "anthropic")).toBe("anthropic      signed in (key)");
+    expect(rowFor(fake, "cloudflare")).toBe("cloudflare     signed in (key, account acct-7)");
+  });
+
+  it("shows only the parts that are set", async () => {
+    const { fake, store } = setup();
+    await store.save("anthropic-aws", { kind: "api-key", apiKey: "sk-aws-secret-313", region: "eu-west-1" });
+    await run(["status"], fake.io);
+    expect(rowFor(fake, "anthropic-aws")).toBe("anthropic-aws  signed in (key, region eu-west-1)");
+  });
+
+  it("names CORE_ANTHROPIC_AWS_WORKSPACE_ID when it is the only variable set, ahead of a saved sign-in", async () => {
+    const { fake, store } = setup({ env: { CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_env" } });
+    await store.save("anthropic-aws", { kind: "api-key", apiKey: "sk-aws-secret-314", workspaceId: "wrkspc_01", region: "us-west-2" });
+    await run(["status"], fake.io);
+    expect(rowFor(fake, "anthropic-aws")).toBe("anthropic-aws  from CORE_ANTHROPIC_AWS_WORKSPACE_ID");
+    expect(fake.stdout()).not.toContain("wrkspc_env");
+  });
+
+  it("names the first variable set, API key before region before workspace ID", async () => {
+    const { fake } = setup({
+      env: {
+        CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_env",
+        CORE_ANTHROPIC_AWS_REGION: "eu-west-1",
+        CORE_ANTHROPIC_API_KEY: "sk-ant-env-315",
+      },
+    });
+    await run(["status"], fake.io);
+    expect(rowFor(fake, "anthropic-aws")).toBe("anthropic-aws  from CORE_ANTHROPIC_AWS_REGION");
+    expect(rowFor(fake, "anthropic")).toBe("anthropic      from CORE_ANTHROPIC_API_KEY");
+    expectNoSecrets(fake, ["sk-ant-env-315"]);
+  });
+});
+
+describe("core models: Anthropic", () => {
+  const claudePage = (ids: string[], hasMore: boolean, lastId?: string) =>
+    json({
+      data: ids.map((id) => ({ type: "model", id })),
+      has_more: hasMore,
+      first_id: ids[0] ?? null,
+      last_id: lastId ?? ids.at(-1) ?? null,
+    });
+
+  it("prints anthropic:<id> lines, sorted, from a two-page listing", async () => {
+    const api = providers((url) =>
+      url.includes("after_id=")
+        ? claudePage(["claude-opus-5-5"], false)
+        : claudePage(["claude-sonnet-4-5", "claude-haiku-4-5"], true, "claude-haiku-4-5"),
+    );
+    const { fake, store } = setup({ fetch: api.fetch });
+    await store.save("anthropic", { kind: "api-key", apiKey: "sk-ant-secret-321" });
+
+    expect(await run(["models", "anthropic"], fake.io)).toBe(0);
+
+    expect(fake.stdout()).toBe("anthropic:claude-haiku-4-5\nanthropic:claude-opus-5-5\nanthropic:claude-sonnet-4-5\n");
+    expect(api.calls.map((call) => call.url)).toEqual([
+      "https://api.anthropic.com/v1/models?limit=1000",
+      "https://api.anthropic.com/v1/models?limit=1000&after_id=claude-haiku-4-5",
+    ]);
+    expect(api.calls[0]?.headers.get("x-api-key")).toBe("sk-ant-secret-321");
+    expect(api.calls[0]?.headers.get("anthropic-version")).toBe("2023-06-01");
+    expectNoSecrets(fake, ["sk-ant-secret-321"]);
+  });
+
+  it("lists anthropic-aws models with the saved region and workspace", async () => {
+    const api = providers(() => claudePage(["claude-opus-5-5"], false));
+    const { fake, store } = setup({ fetch: api.fetch });
+    await store.save("anthropic-aws", { kind: "api-key", apiKey: "sk-aws-secret-322", region: "us-west-2", workspaceId: "wrkspc_01" });
+
+    expect(await run(["models", "anthropic-aws"], fake.io)).toBe(0);
+
+    expect(fake.stdout()).toBe("anthropic-aws:claude-opus-5-5\n");
+    expect(api.calls[0]?.url).toBe("https://aws-external-anthropic.us-west-2.api.aws/v1/models?limit=1000");
+    expect(api.calls[0]?.headers.get("anthropic-workspace-id")).toBe("wrkspc_01");
+    expectNoSecrets(fake, ["sk-aws-secret-322"]);
+  });
+
+  it("lists anthropic-aws models from the environment alone", async () => {
+    const api = providers(() => claudePage(["claude-haiku-4-5"], false));
+    const { fake } = setup({
+      env: {
+        CORE_ANTHROPIC_AWS_API_KEY: "sk-aws-env-323",
+        CORE_ANTHROPIC_AWS_REGION: "eu-central-1",
+        CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_env",
+      },
+      fetch: api.fetch,
+    });
+    expect(await run(["models", "anthropic-aws"], fake.io)).toBe(0);
+    expect(api.calls[0]?.url).toBe("https://aws-external-anthropic.eu-central-1.api.aws/v1/models?limit=1000");
+    expect(api.calls[0]?.headers.get("anthropic-workspace-id")).toBe("wrkspc_env");
+    expect(api.calls[0]?.headers.get("x-api-key")).toBe("sk-aws-env-323");
+  });
+
+  it("returns 1 with an auth error when anthropic-aws has no region, and sends nothing", async () => {
+    const api = providers(() => claudePage(["m"], false));
+    const { fake } = setup({ env: { CORE_ANTHROPIC_AWS_API_KEY: "sk-aws-env-324", CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_env" }, fetch: api.fetch });
+    expect(await run(["models", "anthropic-aws"], fake.io)).toBe(1);
+    expect(fake.stderr()).toContain("anthropic-aws: no region configured");
+    expect(api.calls).toHaveLength(0);
+    expectNoSecrets(fake, ["sk-aws-env-324"]);
   });
 });

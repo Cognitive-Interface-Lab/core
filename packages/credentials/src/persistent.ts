@@ -83,6 +83,10 @@ export class PersistentCredentialStore implements CredentialStore {
       if (stored === undefined) continue;
       const summary: CredentialSummary = { providerId, kind: stored.kind };
       if (stored.accountId !== undefined) summary.accountId = stored.accountId;
+      if (stored.kind === "api-key") {
+        if (stored.region !== undefined) summary.region = stored.region;
+        if (stored.workspaceId !== undefined) summary.workspaceId = stored.workspaceId;
+      }
       if (stored.kind === "oauth") summary.expiresAt = stored.expiresAt;
       summaries.push(summary);
     }
@@ -164,6 +168,8 @@ function toCredentials(stored: StoredCredential): Credentials {
   const credentials: Credentials = { apiKey: stored.apiKey };
   if (stored.accountId !== undefined) credentials.accountId = stored.accountId;
   if (stored.baseURL !== undefined) credentials.baseURL = stored.baseURL;
+  if (stored.region !== undefined) credentials.region = stored.region;
+  if (stored.workspaceId !== undefined) credentials.workspaceId = stored.workspaceId;
   return credentials;
 }
 

@@ -42,8 +42,12 @@ Sign in to a provider:
     core login openrouter      # opens the browser; approve there and you are signed in
     core login cloudflare      # the same, by link (--key pastes an API token and account ID instead)
     core login openai          # also groq and vercel: opens the page that creates an API key, then asks you to paste it
+    core login anthropic       # Claude API: opens the Claude Console key page, then asks you to paste the key
+    core login anthropic-aws   # Claude Platform on AWS: asks for the AWS region, the workspace ID and an AWS-Console API key
 
 Ollama needs no sign-in. If the browser should not open by itself, add `--no-open` and core prints the link for you to open on this machine. Sign-ins go to the OS keychain when one is available. `core help <command>` shows each command's options.
+
+Claude comes two ways. `anthropic` is the Claude API with a key from platform.claude.com. `anthropic-aws` is Claude Platform on AWS: it needs the AWS region, the Claude workspace ID and an API key created in the AWS Console (Claude Console keys don't work there). Route to a model by its plain ID, for example `core config set route anthropic:claude-opus-5-5`; `core models anthropic` lists them. For scripts, `CORE_ANTHROPIC_API_KEY`, or `CORE_ANTHROPIC_AWS_API_KEY`, `CORE_ANTHROPIC_AWS_REGION` and `CORE_ANTHROPIC_AWS_WORKSPACE_ID`, replace a saved sign-in: when any one of a provider's variables is set, core reads that provider from the environment only.
 
 Vercel AI Gateway reaches many providers' models with one key. Sign in with `core login vercel`, then route to a model by its gateway name, for example `core config set route vercel:openai/gpt-4o-mini`.
 
@@ -73,6 +77,7 @@ Every milestone ends with something runnable.
 | M2b Local CLI and credentials | `core ask` and `core chat` answer from any terminal, with saved sign-ins for OpenRouter, Cloudflare and Ollama |
 | M2c Tab completion | Tab completes `core` commands, options, providers and Ollama model names in bash |
 | M2d Browser sign-in and Vercel | `core login cloudflare` signs in by link, key-based logins open the page that creates the key, and Vercel AI Gateway is a provider |
+| M2e Anthropic provider | `core login anthropic` (Claude API) and `core login anthropic-aws` (Claude Platform on AWS, with region and workspace ID) sign in, and `anthropic:` models answer |
 | M3 Process graph and event log | A branched conversation is stored and replayed from its events |
 | M4 Server, auth and clients | The same over HTTP, from the generated TypeScript and Python clients |
 | M5 Trilix on core | Trilix's web app runs its chats through the backbone |
