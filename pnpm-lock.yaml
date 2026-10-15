@@ -331,6 +331,9 @@ importers:
       ai:
         specifier: ^7.0.0
         version: 7.0.137(zod@4.6.5)
+      zod:
+        specifier: ^4.0.0
+        version: 4.6.5
 
   packages/runtime:
     dependencies:

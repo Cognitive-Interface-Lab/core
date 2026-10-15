@@ -10,6 +10,7 @@ import {
   type Usage,
 } from "@core/contracts";
 import type { ChatOptions, ModelProvider } from "../provider.js";
+import { parseStructuredOutput } from "../structured.js";
 
 export type MockTurn = {
   text?: string;
@@ -47,7 +48,7 @@ export class MockProvider implements ModelProvider {
   // The mock answers the same for every model; the parameter only mirrors `ModelProvider`.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   capabilities(_model?: string): ModelCapabilities {
-    return { streaming: true, tools: true, vision: false };
+    return { streaming: true, tools: true, vision: false, structuredOutput: true };
   }
 
   async chat(req: ChatRequest, opts?: ChatOptions): Promise<ChatResponse> {
@@ -59,18 +60,30 @@ export class MockProvider implements ModelProvider {
     const text = turn.text ?? "";
     const message: ChatResponse["message"] = { role: "assistant", content: text };
     if (turn.toolCalls !== undefined) message.toolCalls = turn.toolCalls;
-    return {
+    const response: ChatResponse = {
       model: req.model,
       message,
       finishReason: this.#finishReason(turn),
       usage: this.#usage(req, text),
     };
+    if (req.outputSchema !== undefined) {
+      response.output = parseStructuredOutput(req.outputSchema, text);
+    }
+    return response;
   }
 
   stream(req: ChatRequest, opts?: ChatOptions): AsyncIterable<StreamEvent> {
+    if (req.outputSchema !== undefined) {
+      return this.#rejectOutputSchema();
+    }
     // Record and consume eagerly so that call order, not iteration order, decides the turn.
     const taken = this.#take(req);
     return this.#events(req, taken, opts);
+  }
+
+  async *#rejectOutputSchema(): AsyncGenerator<StreamEvent> {
+    const error = new CoreError("bad_request", "outputSchema is not supported when streaming");
+    yield { type: "error", error: error.toJSON() };
   }
 
   async *#events(req: ChatRequest, taken: TakenTurn, opts?: ChatOptions): AsyncGenerator<StreamEvent> {

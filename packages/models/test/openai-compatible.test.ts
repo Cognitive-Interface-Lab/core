@@ -89,6 +89,7 @@ describe("OpenAICompatibleProvider capabilities", () => {
       streaming: true,
       tools: true,
       vision: false,
+      structuredOutput: true,
     });
   });
 
@@ -103,6 +104,7 @@ describe("OpenAICompatibleProvider capabilities", () => {
       tools: true,
       vision: true,
       contextWindow: 128_000,
+      structuredOutput: true,
     });
   });
 
@@ -117,8 +119,14 @@ describe("OpenAICompatibleProvider capabilities", () => {
       tools: true,
       vision: true,
       contextWindow: 64_000,
+      structuredOutput: true,
     });
-    expect(provider.capabilities("gpt-plain")).toEqual({ streaming: true, tools: true, vision: false });
+    expect(provider.capabilities("gpt-plain")).toEqual({
+      streaming: true,
+      tools: true,
+      vision: false,
+      structuredOutput: true,
+    });
   });
 
   it("passes the asked model id to the function on every call", () => {
@@ -529,5 +537,34 @@ describe("OpenAICompatibleProvider cancellation", () => {
     setTimeout(() => controller.abort(new DOMException("timed out", "TimeoutError")), 10);
     const events = await collect(providerFor(hangingFetch()).stream(request, { signal: controller.signal }));
     expect(streamError(events).code).toBe("timeout");
+  });
+});
+
+describe("OpenAICompatibleProvider structured output request", () => {
+  it("sends a json_schema response_format carrying the outputSchema and returns the parsed output", async () => {
+    const outputSchema = {
+      type: "object",
+      properties: { a: { type: "number" } },
+      required: ["a"],
+      additionalProperties: false,
+    };
+    const fake = respondWith(() => completionResponse({ content: '{"a":1}' }));
+    const response = await providerFor(fake).chat({ ...request, outputSchema });
+    expect(fake.requests).toHaveLength(1);
+    const format = fake.requests[0]!.body!.response_format as {
+      type: string;
+      json_schema: { schema: unknown };
+    };
+    expect(format.type).toBe("json_schema");
+    expect(format.json_schema.schema).toEqual(outputSchema);
+    expect(response.output).toEqual({ a: 1 });
+  });
+
+  it("sends no response_format when the request has no outputSchema", async () => {
+    const fake = respondWith(() => completionResponse());
+    await providerFor(fake).chat(request);
+    const body = fake.requests[0]!.body!;
+    expect(body.response_format).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("json_schema");
   });
 });
