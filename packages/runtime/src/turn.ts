@@ -26,6 +26,8 @@ export type RunTurnOptions = {
   signal?: AbortSignal;
   confirm?: ConfirmFn;
   temperature?: number;
+  /** The output-token limit of each model request; unlike `budget.maxOutputTokens`, which caps the whole turn. */
+  maxOutputTokens?: number;
 };
 
 /**
@@ -88,6 +90,7 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
         messages: [...opts.messages, ...added],
         ...(definitions.length > 0 && { tools: definitions }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
+        ...(opts.maxOutputTokens !== undefined && { maxOutputTokens: opts.maxOutputTokens }),
       };
 
       let text = "";
