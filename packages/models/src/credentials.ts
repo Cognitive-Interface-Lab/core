@@ -3,6 +3,10 @@ export type Credentials = {
   baseURL?: string;
   /** Account that owns the key, for providers whose address contains it (Cloudflare Workers AI). */
   accountId?: string;
+  /** The AWS region, which fills `{region}` in a preset address. */
+  region?: string;
+  /** The workspace the key is scoped to (Claude Platform on AWS). */
+  workspaceId?: string;
   headers?: Record<string, string>;
 };
 
@@ -15,6 +19,8 @@ function copyCredentials(credentials: Credentials): Credentials {
   if (credentials.apiKey !== undefined) copy.apiKey = credentials.apiKey;
   if (credentials.baseURL !== undefined) copy.baseURL = credentials.baseURL;
   if (credentials.accountId !== undefined) copy.accountId = credentials.accountId;
+  if (credentials.region !== undefined) copy.region = credentials.region;
+  if (credentials.workspaceId !== undefined) copy.workspaceId = credentials.workspaceId;
   if (credentials.headers !== undefined) copy.headers = { ...credentials.headers };
   return copy;
 }
@@ -46,7 +52,11 @@ export class MemoryCredentialStore implements CredentialStore {
   }
 }
 
-/** Reads `<prefix><ID>_API_KEY`, `_BASE_URL` and `_ACCOUNT_ID`; an empty value counts as unset. */
+/**
+ * Reads `<prefix><ID>_API_KEY`, `_BASE_URL`, `_ACCOUNT_ID`, `_REGION` and `_WORKSPACE_ID`; an empty
+ * value counts as unset. Returns `undefined` only when all five are unset, otherwise exactly the
+ * fields that are set (for provider `anthropic-aws`: `CORE_ANTHROPIC_AWS_REGION`, ...).
+ */
 export class EnvCredentialStore implements CredentialStore {
   readonly #env: Record<string, string | undefined>;
   readonly #prefix: string;
@@ -61,11 +71,23 @@ export class EnvCredentialStore implements CredentialStore {
     const apiKey = this.#env[`${this.#prefix}${id}_API_KEY`] || undefined;
     const baseURL = this.#env[`${this.#prefix}${id}_BASE_URL`] || undefined;
     const accountId = this.#env[`${this.#prefix}${id}_ACCOUNT_ID`] || undefined;
-    if (apiKey === undefined && baseURL === undefined && accountId === undefined) return undefined;
+    const region = this.#env[`${this.#prefix}${id}_REGION`] || undefined;
+    const workspaceId = this.#env[`${this.#prefix}${id}_WORKSPACE_ID`] || undefined;
+    if (
+      apiKey === undefined &&
+      baseURL === undefined &&
+      accountId === undefined &&
+      region === undefined &&
+      workspaceId === undefined
+    ) {
+      return undefined;
+    }
     const credentials: Credentials = {};
     if (apiKey !== undefined) credentials.apiKey = apiKey;
     if (baseURL !== undefined) credentials.baseURL = baseURL;
     if (accountId !== undefined) credentials.accountId = accountId;
+    if (region !== undefined) credentials.region = region;
+    if (workspaceId !== undefined) credentials.workspaceId = workspaceId;
     return credentials;
   }
 

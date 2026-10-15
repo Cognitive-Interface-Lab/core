@@ -4,6 +4,7 @@ import {
   cloudflareRefresher,
 } from "@core/credentials";
 import {
+  AnthropicProvider,
   EnvCredentialStore,
   MockProvider,
   ModelRouter,
@@ -11,6 +12,7 @@ import {
   PRESETS,
   ProviderRegistry,
   type CredentialStore,
+  type ModelProvider,
 } from "@core/models";
 import type { Config } from "./config.js";
 import type { Io } from "./run.js";
@@ -48,23 +50,33 @@ export async function openGateway(io: Io, config: Config): Promise<Gateway> {
   return { registry, router, store, credentials, providers };
 }
 
-export function makeProvider(id: string, credentials: CredentialStore, io: Io): OpenAICompatibleProvider {
+/**
+ * The adapter that speaks the preset's wire format: Anthropic's Messages API, else OpenAI chat
+ * completions. Both can list their models, so `listModels` is not optional here.
+ */
+export function makeProvider(
+  id: string,
+  credentials: CredentialStore,
+  io: Io,
+): ModelProvider & Required<Pick<ModelProvider, "listModels">> {
   const preset = PRESETS[id];
-  return new OpenAICompatibleProvider({
+  const opts = {
     id,
     credentials,
     ...(preset ? { preset } : {}),
     fetch: io.fetch,
-  });
+  };
+  return preset?.api === "anthropic" ? new AnthropicProvider(opts) : new OpenAICompatibleProvider(opts);
 }
 
 /**
- * The name of the first set variable among `CORE_<ID>_API_KEY`, `_BASE_URL` and `_ACCOUNT_ID`, or
- * `undefined`. Lets a command say where a credential comes from without ever printing its value.
+ * The name of the first set variable among `CORE_<ID>_API_KEY`, `_BASE_URL`, `_ACCOUNT_ID`,
+ * `_REGION` and `_WORKSPACE_ID` (checked in that order), or `undefined`. Lets a command say where
+ * a credential comes from without ever printing its value.
  */
 export function envSource(env: Record<string, string | undefined>, providerId: string): string | undefined {
   const id = providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
-  for (const suffix of ["API_KEY", "BASE_URL", "ACCOUNT_ID"]) {
+  for (const suffix of ["API_KEY", "BASE_URL", "ACCOUNT_ID", "REGION", "WORKSPACE_ID"]) {
     const name = `${ENV_PREFIX}${id}_${suffix}`;
     if (env[name]) return name;
   }

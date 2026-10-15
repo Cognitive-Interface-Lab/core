@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { CoreError, type ChatRequest } from "@core/contracts";
-import { PRESETS } from "@core/models";
+import { AnthropicProvider, OpenAICompatibleProvider, PRESETS } from "@core/models";
 import { cleanupFakeIo, fakeIo } from "./fake-io.js";
 import { envSource, makeProvider, openGateway } from "../src/setup.js";
 
@@ -244,5 +244,123 @@ describe("envSource", () => {
 
   it("normalises the provider id the way the environment store does", () => {
     expect(envSource({ CORE_MY_PROVIDER_API_KEY: KEY }, "my-provider")).toBe("CORE_MY_PROVIDER_API_KEY");
+  });
+});
+
+describe("envSource: region and workspace ID", () => {
+  it("returns CORE_ANTHROPIC_AWS_REGION when only that variable is set", () => {
+    expect(envSource({ CORE_ANTHROPIC_AWS_REGION: "us-west-2" }, "anthropic-aws")).toBe("CORE_ANTHROPIC_AWS_REGION");
+  });
+
+  it("returns CORE_ANTHROPIC_AWS_WORKSPACE_ID when only that variable is set", () => {
+    expect(envSource({ CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_01" }, "anthropic-aws")).toBe(
+      "CORE_ANTHROPIC_AWS_WORKSPACE_ID",
+    );
+  });
+
+  it("checks API key, base URL, account ID, region, then workspace ID", () => {
+    const all: Record<string, string> = {
+      CORE_ANTHROPIC_AWS_API_KEY: "k",
+      CORE_ANTHROPIC_AWS_BASE_URL: "https://x",
+      CORE_ANTHROPIC_AWS_ACCOUNT_ID: "a",
+      CORE_ANTHROPIC_AWS_REGION: "us-west-2",
+      CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_01",
+    };
+    const order = ["API_KEY", "BASE_URL", "ACCOUNT_ID", "REGION", "WORKSPACE_ID"];
+    for (let first = 0; first < order.length; first++) {
+      const rest = Object.fromEntries(order.slice(first).map((suffix) => [`CORE_ANTHROPIC_AWS_${suffix}`, all[`CORE_ANTHROPIC_AWS_${suffix}`]]));
+      expect(envSource(rest, "anthropic-aws")).toBe(`CORE_ANTHROPIC_AWS_${order[first]}`);
+    }
+  });
+
+  it("lets _API_KEY win when API_KEY and REGION are both set", () => {
+    expect(envSource({ CORE_ANTHROPIC_AWS_REGION: "us-west-2", CORE_ANTHROPIC_AWS_API_KEY: "k" }, "anthropic-aws")).toBe(
+      "CORE_ANTHROPIC_AWS_API_KEY",
+    );
+  });
+
+  it("treats an empty region or workspace ID as unset, and keeps anthropic and anthropic-aws apart", () => {
+    expect(envSource({ CORE_ANTHROPIC_AWS_REGION: "", CORE_ANTHROPIC_AWS_WORKSPACE_ID: "" }, "anthropic-aws")).toBeUndefined();
+    expect(envSource({ CORE_ANTHROPIC_AWS_REGION: "us-west-2" }, "anthropic")).toBeUndefined();
+    expect(envSource({ CORE_ANTHROPIC_API_KEY: "k" }, "anthropic-aws")).toBeUndefined();
+  });
+});
+
+describe("makeProvider: adapter choice", () => {
+  const messageBody = (text: string) =>
+    json({
+      id: "msg_test",
+      type: "message",
+      role: "assistant",
+      model: "claude-test",
+      content: [{ type: "text", text }],
+      stop_reason: "end_turn",
+      stop_sequence: null,
+      usage: { input_tokens: 3, output_tokens: 2 },
+    });
+
+  it("builds an AnthropicProvider for anthropic and anthropic-aws", async () => {
+    const fake = fakeIo();
+    const gateway = await openGateway(fake.io, {});
+    for (const id of ["anthropic", "anthropic-aws"]) {
+      const provider = makeProvider(id, gateway.credentials, fake.io);
+      expect(provider).toBeInstanceOf(AnthropicProvider);
+      expect(provider.id).toBe(id);
+    }
+  });
+
+  it("builds an OpenAICompatibleProvider for every other preset, and for an id with no preset", async () => {
+    const fake = fakeIo();
+    const gateway = await openGateway(fake.io, {});
+    const others = Object.keys(PRESETS).filter((id) => PRESETS[id]?.api !== "anthropic");
+    expect(others).toEqual(expect.arrayContaining(["groq", "openai", "openrouter", "ollama", "cloudflare", "vercel"]));
+    for (const id of [...others, "not-a-preset"]) {
+      const provider = makeProvider(id, gateway.credentials, fake.io);
+      expect(provider).toBeInstanceOf(OpenAICompatibleProvider);
+      expect(provider).not.toBeInstanceOf(AnthropicProvider);
+    }
+  });
+
+  it("registers an AnthropicProvider for both ids in the gateway", async () => {
+    const gateway = await openGateway(fakeIo().io, {});
+    expect(gateway.providers).toEqual(expect.arrayContaining(["anthropic", "anthropic-aws"]));
+    expect(gateway.registry.get("anthropic")).toBeInstanceOf(AnthropicProvider);
+    expect(gateway.registry.get("anthropic-aws")).toBeInstanceOf(AnthropicProvider);
+    expect(gateway.registry.get("groq")).toBeInstanceOf(OpenAICompatibleProvider);
+  });
+
+  it("chats with Claude through the Messages API using the environment's key", async () => {
+    const http = recordingFetch(() => messageBody("Bonjour"));
+    const fake = fakeIo({ env: { CORE_ANTHROPIC_API_KEY: "sk-ant-env-411" }, fetch: http.fetch });
+    const gateway = await openGateway(fake.io, {});
+    const response = await makeProvider("anthropic", gateway.credentials, fake.io).chat({
+      model: { provider: "anthropic", model: "claude-opus-5-5" },
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(response.message.content).toBe("Bonjour");
+    expect(http.calls[0]?.url).toBe("https://api.anthropic.com/v1/messages");
+    expect(http.calls[0]?.headers.get("x-api-key")).toBe("sk-ant-env-411");
+    expect(http.calls[0]?.headers.has("anthropic-workspace-id")).toBe(false);
+  });
+
+  it("chats on Claude Platform on AWS with the region and workspace from the environment", async () => {
+    const http = recordingFetch(() => messageBody("Hallo"));
+    const fake = fakeIo({
+      env: {
+        CORE_ANTHROPIC_AWS_API_KEY: "sk-aws-env-412",
+        CORE_ANTHROPIC_AWS_REGION: "eu-central-1",
+        CORE_ANTHROPIC_AWS_WORKSPACE_ID: "wrkspc_env",
+      },
+      fetch: http.fetch,
+    });
+    const gateway = await openGateway(fake.io, {});
+    const response = await makeProvider("anthropic-aws", gateway.credentials, fake.io).chat({
+      model: { provider: "anthropic-aws", model: "claude-opus-5-5" },
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(response.message.content).toBe("Hallo");
+    expect(http.calls[0]?.url).toBe("https://aws-external-anthropic.eu-central-1.api.aws/v1/messages");
+    expect(http.calls[0]?.headers.get("x-api-key")).toBe("sk-aws-env-412");
+    expect(http.calls[0]?.headers.get("anthropic-workspace-id")).toBe("wrkspc_env");
   });
 });

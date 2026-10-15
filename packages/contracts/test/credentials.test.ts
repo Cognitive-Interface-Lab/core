@@ -66,3 +66,48 @@ describe("CredentialSummarySchema", () => {
     expect(CredentialSummarySchema.safeParse(value).success).toBe(false);
   });
 });
+
+describe("region and workspaceId on a saved key sign-in", () => {
+  const withBoth = { ...apiKey, region: "us-west-2", workspaceId: "wrkspc_01" };
+
+  it("parses an api-key record that carries both, unchanged", () => {
+    expect(StoredCredentialSchema.parse(withBoth)).toEqual(withBoth);
+  });
+
+  it("parses an api-key record that carries only one of them", () => {
+    const regionOnly = { ...apiKey, region: "eu-central-1" };
+    const workspaceOnly = { ...apiKey, workspaceId: "wrkspc_01" };
+    expect(StoredCredentialSchema.parse(regionOnly)).toEqual(regionOnly);
+    expect(StoredCredentialSchema.parse(workspaceOnly)).toEqual(workspaceOnly);
+  });
+
+  it.each([
+    ["an empty workspace id", { ...apiKey, workspaceId: "" }],
+    ["an empty region", { ...apiKey, region: "" }],
+    ["an upper-case region", { ...apiKey, region: "US-WEST-2" }],
+    ["a region with spaces", { ...apiKey, region: "us west 2" }],
+    ["a region with a slash", { ...apiKey, region: "a/b" }],
+  ])("rejects %s", (_name, value) => {
+    expect(StoredCredentialSchema.safeParse(value).success).toBe(false);
+  });
+
+  it.each([
+    ["a region", { ...oauth, region: "us-west-2" }],
+    ["a workspace id", { ...oauth, workspaceId: "wrkspc_01" }],
+  ])("rejects an oauth record with %s", (_name, value) => {
+    expect(StoredCredentialSchema.safeParse(value).success).toBe(false);
+  });
+
+  it("accepts both on an api-key summary", () => {
+    const summary = { providerId: "anthropic-aws", kind: "api-key", region: "us-west-2", workspaceId: "wrkspc_01" };
+    expect(CredentialSummarySchema.parse(summary)).toEqual(summary);
+  });
+
+  it.each([
+    ["an empty workspace id", { providerId: "anthropic-aws", kind: "api-key", workspaceId: "" }],
+    ["an upper-case region", { providerId: "anthropic-aws", kind: "api-key", region: "US-WEST-2" }],
+    ["a region with a slash", { providerId: "anthropic-aws", kind: "api-key", region: "a/b" }],
+  ])("rejects a summary with %s", (_name, value) => {
+    expect(CredentialSummarySchema.safeParse(value).success).toBe(false);
+  });
+});
