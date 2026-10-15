@@ -57,6 +57,17 @@ To update later, pull and rebuild in the same folder. The link keeps working:
 
 If `git pull` refuses because `pnpm-lock.yaml` changed locally, run `git checkout -- pnpm-lock.yaml` first. A standalone pnpm install adds its own entries to the lockfile; they are not yours to commit.
 
+### Calling core ask from a program
+
+`core ask` has four options for scripts and other programs:
+
+    core ask --system-file prompt.txt "…"              # the file's text goes first, as the instructions
+    core ask --schema shape.json "…"                   # prints the answer as one line of JSON matching the JSON Schema in shape.json
+    core ask --json "…"                                # prints one JSON result instead of the answer text
+    core ask --timeout 60000 "…"                       # milliseconds per model, for this call only
+
+With `--json`, stdout is one line once the options are understood (a misspelled option prints only the usage on stderr). On success it is `{"ok":true,"model":{"provider":…,"model":…},"text":…,"usage":…,"attempts":[…]}`, plus `output` (the matched object) when `--schema` is given. On failure it is `{"ok":false,"error":{"code":…,"message":…,"retryable":…},"attempts":[…]}`. `attempts` lists every model tried, in route order. The exit codes are the same with or without `--json`: 0 answered, 1 the models failed (a reply that is not valid JSON or does not match the schema counts, code `unknown`), 2 a usage error such as a missing or invalid schema file (reported before any model is called), 130 Ctrl+C. `--schema` and `--json` wait for the whole answer instead of streaming it. Nothing changes without these options.
+
 ### Tab completion (bash)
 
 Let Tab complete commands, options, provider names, config keys and Ollama model names. Install once (needs the `bash-completion` package, which most Linux systems have):
@@ -78,6 +89,7 @@ Every milestone ends with something runnable.
 | M2c Tab completion | Tab completes `core` commands, options, providers and Ollama model names in bash |
 | M2d Browser sign-in and Vercel | `core login cloudflare` signs in by link, key-based logins open the page that creates the key, and Vercel AI Gateway is a provider |
 | M2e Anthropic provider | `core login anthropic` (Claude API) and `core login anthropic-aws` (Claude Platform on AWS, with region and workspace ID) sign in, and `anthropic:` models answer |
+| M2f core ask for programs | `core ask --schema`, `--system-file`, `--json` and `--timeout` let a program get a checked JSON answer and a machine-readable result |
 | M3 Process graph and event log | A branched conversation is stored and replayed from its events |
 | M4 Server, auth and clients | The same over HTTP, from the generated TypeScript and Python clients |
 | M5 Trilix on core | Trilix's web app runs its chats through the backbone |
