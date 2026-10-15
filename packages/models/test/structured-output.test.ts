@@ -225,10 +225,8 @@ describe("ModelRouter with outputSchema", () => {
     expect(response.attempts).toHaveLength(2);
     const [skipped, answered] = response.attempts;
     expect(skipped?.ok).toBe(false);
-    if (skipped?.ok === false) {
-      expect(skipped.error.code).toBe("bad_request");
-      expect(skipped.error.message).toContain("structured output is not supported");
-    }
+    expect(skipped?.error?.code).toBe("bad_request");
+    expect(skipped?.error?.message).toContain("structured output is not supported");
     expect(answered?.ok).toBe(true);
   });
 
