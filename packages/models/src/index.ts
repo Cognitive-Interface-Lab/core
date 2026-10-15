@@ -5,3 +5,4 @@ export * from "./providers/mock.js";
 export * from "./providers/presets.js";
 export * from "./providers/openai-compatible.js";
 export * from "./router.js";
+export { outputSchemaFrom, parseStructuredOutput } from "./structured.js";
