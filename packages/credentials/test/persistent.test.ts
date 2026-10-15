@@ -400,3 +400,50 @@ describe("serialising", () => {
     expect(JSON.stringify({ store, chain })).toBe('{"store":{},"chain":{}}');
   });
 });
+
+describe("PersistentCredentialStore region and workspaceId", () => {
+  it("carries both from a saved key sign-in into the credentials", async () => {
+    const { store } = storeWith();
+    await store.save("anthropic-aws", {
+      kind: "api-key",
+      apiKey: API_KEY,
+      region: "us-west-2",
+      workspaceId: "wrkspc_01",
+    });
+    expect(await store.get("anthropic-aws")).toEqual({
+      apiKey: API_KEY,
+      region: "us-west-2",
+      workspaceId: "wrkspc_01",
+    });
+  });
+
+  it("puts both in that provider's summary and never the key", async () => {
+    const { store } = storeWith();
+    await store.save("anthropic-aws", {
+      kind: "api-key",
+      apiKey: API_KEY,
+      region: "us-west-2",
+      workspaceId: "wrkspc_01",
+    });
+    await store.save("openrouter", { kind: "api-key", apiKey: API_KEY });
+
+    const summaries = await store.list();
+    expect(summaries).toEqual([
+      { providerId: "anthropic-aws", kind: "api-key", region: "us-west-2", workspaceId: "wrkspc_01" },
+      { providerId: "openrouter", kind: "api-key" },
+    ]);
+    expect(JSON.stringify(summaries)).not.toContain(API_KEY);
+  });
+
+  it("leaves both keys out, rather than undefined, when the record has neither", async () => {
+    const { store } = storeWith();
+    await store.save("openrouter", { kind: "api-key", apiKey: API_KEY });
+
+    const credentials = await store.get("openrouter");
+    expect(credentials).not.toHaveProperty("region");
+    expect(credentials).not.toHaveProperty("workspaceId");
+    const [summary] = await store.list();
+    expect(summary).not.toHaveProperty("region");
+    expect(summary).not.toHaveProperty("workspaceId");
+  });
+});
