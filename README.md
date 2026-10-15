@@ -45,6 +45,15 @@ To update later, pull and rebuild in the same folder. The link keeps working:
 
 If `git pull` refuses because `pnpm-lock.yaml` changed locally, run `git checkout -- pnpm-lock.yaml` first. A standalone pnpm install adds its own entries to the lockfile; they are not yours to commit.
 
+### Tab completion (bash)
+
+Let Tab complete commands, options, provider names, config keys and Ollama model names. Install once (needs the `bash-completion` package, which most Linux systems have):
+
+    mkdir -p ~/.local/share/bash-completion/completions
+    core completion bash > ~/.local/share/bash-completion/completions/core
+
+Open a new terminal, then try `core lo<Tab>` or `core config set route <Tab>`. Model names come from your local Ollama only: completion never contacts remote providers or opens the keychain, and if Ollama doesn't answer within 1.5 s it offers no model names, so Tab never hangs. Run the install line again after updating core.
+
 ## Roadmap
 
 Every milestone ends with something runnable.
@@ -54,6 +63,7 @@ Every milestone ends with something runnable.
 | M1 Foundation and model gateway | `hello-gateway` example streams an answer through the router (mock in CI, Ollama or any OpenAI-compatible API locally) |
 | M2 Tools, MCP and runtime | An example agent calls a local tool and an MCP server |
 | M2b Local CLI and credentials | `core ask` and `core chat` answer from any terminal, with saved sign-ins for OpenRouter, Cloudflare and Ollama |
+| M2c Tab completion | Tab completes `core` commands, options, providers and Ollama model names in bash |
 | M3 Process graph and event log | A branched conversation is stored and replayed from its events |
 | M4 Server, auth and clients | The same over HTTP, from the generated TypeScript and Python clients |
 | M5 Trilix on core | Trilix's web app runs its chats through the backbone |
