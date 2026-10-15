@@ -90,4 +90,47 @@ describe("parseStructuredOutput", () => {
       expect(error.message).not.toContain(marker);
     });
   });
+
+  describe("finish reason", () => {
+    const cutOff = 'structured output was cut off at the output-token limit (finish reason "length")';
+    const marker = "SECRET-MARKER-VALUE";
+    const missingTags: Record<string, unknown> = { ...valid, name: marker };
+    delete missingTags.tags;
+
+    const failing: Array<[string, string]> = [
+      ["empty text", ""],
+      ["truncated JSON", '{"answer": 4'],
+      ["parsable JSON that misses a required property", JSON.stringify(missingTags)],
+    ];
+
+    it.each(failing)("throws the cut-off error with length for %s", (_label, text) => {
+      const error = caught(() => parseStructuredOutput(outputSchema, text, "length"));
+      expect(error.code).toBe("unknown");
+      expect(error.message).toBe(cutOff);
+      expect(error.details).toEqual({ finishReason: "length" });
+      expect(error.message).not.toContain(marker);
+    });
+
+    it("returns the value for a complete, matching reply with length", () => {
+      expect(parseStructuredOutput(outputSchema, JSON.stringify(valid), "length")).toEqual(valid);
+    });
+
+    it("keeps the invalid-JSON message with stop and with no finish reason", () => {
+      for (const reason of ["stop" as const, undefined]) {
+        const error = caught(() => parseStructuredOutput(outputSchema, '{"answer": 4', reason));
+        expect(error.code).toBe("unknown");
+        expect(error.message).toBe("structured output is not valid JSON");
+        expect(error.details).toBeUndefined();
+      }
+    });
+
+    it("keeps the mismatch message with stop and with no finish reason", () => {
+      for (const reason of ["stop" as const, undefined]) {
+        const error = caught(() => parseStructuredOutput(outputSchema, JSON.stringify(missingTags), reason));
+        expect(error.code).toBe("unknown");
+        expect(error.message.startsWith("structured output does not match outputSchema:")).toBe(true);
+        expect(error.details).toBeUndefined();
+      }
+    });
+  });
 });

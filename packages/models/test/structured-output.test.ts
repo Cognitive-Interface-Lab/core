@@ -183,6 +183,48 @@ describe("structured output on OpenAICompatibleProvider", () => {
   });
 });
 
+const CUT_OFF = 'structured output was cut off at the output-token limit (finish reason "length")';
+
+describe("a structured answer cut off at the output-token limit", () => {
+  it("MockProvider: an empty reply finished with length rejects with the cut-off error", async () => {
+    const provider = new MockProvider({ script: [{ text: "", finishReason: "length" }] });
+    const error = await caught(provider.chat(structured));
+    expect(error.code).toBe("unknown");
+    expect(error.message).toBe(CUT_OFF);
+    expect(error.details).toEqual({ finishReason: "length" });
+  });
+
+  it("MockProvider: a matching reply finished with length resolves with output", async () => {
+    const provider = new MockProvider({ script: [{ text: '{"a":1}', finishReason: "length" }] });
+    const response = await provider.chat(structured);
+    expect(response.output).toEqual({ a: 1 });
+    expect(response.finishReason).toBe("length");
+  });
+
+  const failing: Array<[string, string, string]> = [
+    ["an empty content (checked in chat())", "", ""],
+    ["truncated JSON (the NoObjectGeneratedError recovery)", '{"a": 1', '{"a": 1'],
+    ["valid JSON missing a required property (checked in chat())", `{"b":"${MARKER}"}`, MARKER],
+  ];
+
+  it.each(failing)("OpenAICompatibleProvider: length with %s rejects with the cut-off error", async (_label, content, leak) => {
+    const fake = respondWith(() => completionResponse({ content, finishReason: "length" }));
+    const error = await caught(providerFor(fake).chat(openaiRequest));
+    expect(error.code).toBe("unknown");
+    expect(error.message).toBe(CUT_OFF);
+    expect(error.details).toEqual({ finishReason: "length" });
+    if (leak !== "") expect(error.message).not.toContain(leak);
+    expect(error.message).not.toContain(SECRET);
+  });
+
+  it("OpenAICompatibleProvider: a complete matching reply finished with length resolves with output", async () => {
+    const fake = respondWith(() => completionResponse({ content: '{"a":1,"b":"x"}', finishReason: "length" }));
+    const response = await providerFor(fake).chat(openaiRequest);
+    expect(response.output).toEqual({ a: 1, b: "x" });
+    expect(response.finishReason).toBe("length");
+  });
+});
+
 describe("streaming rejects outputSchema", () => {
   it("MockProvider yields one bad_request error event and consumes no scripted turn", async () => {
     const provider = new MockProvider({ script: [{ text: '{"a":1}' }] });
