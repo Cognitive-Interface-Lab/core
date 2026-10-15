@@ -34,7 +34,12 @@ describe("MockProvider basics", () => {
   });
 
   it("reports streaming and tools but not vision", () => {
-    expect(new MockProvider().capabilities()).toEqual({ streaming: true, tools: true, vision: false });
+    expect(new MockProvider().capabilities()).toEqual({
+      streaming: true,
+      tools: true,
+      vision: false,
+      structuredOutput: true,
+    });
   });
 });
 
