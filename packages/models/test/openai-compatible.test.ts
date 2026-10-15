@@ -66,7 +66,7 @@ function streamError(events: StreamEvent[]) {
 }
 
 describe("presets", () => {
-  it("define the six hosted and local servers", () => {
+  it("define the eight hosted and local servers", () => {
     expect(PRESETS).toEqual({
       openai: { baseURL: "https://api.openai.com/v1", requiresKey: true },
       ollama: { baseURL: "http://127.0.0.1:11434/v1", requiresKey: false },
@@ -78,6 +78,14 @@ describe("presets", () => {
         models: "cloudflare",
       },
       vercel: { baseURL: "https://ai-gateway.vercel.sh/v1", requiresKey: true },
+      anthropic: { baseURL: "https://api.anthropic.com/v1", requiresKey: true, api: "anthropic", models: "anthropic" },
+      "anthropic-aws": {
+        baseURL: "https://aws-external-anthropic.{region}.api.aws/v1",
+        requiresKey: true,
+        requiresWorkspace: true,
+        api: "anthropic",
+        models: "anthropic",
+      },
     });
   });
 });

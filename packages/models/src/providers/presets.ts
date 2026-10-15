@@ -22,4 +22,12 @@ export const PRESETS: Record<string, Preset> = {
     models: "cloudflare",
   },
   vercel: { baseURL: "https://ai-gateway.vercel.sh/v1", requiresKey: true },
+  anthropic: { baseURL: "https://api.anthropic.com/v1", requiresKey: true, api: "anthropic", models: "anthropic" },
+  "anthropic-aws": {
+    baseURL: "https://aws-external-anthropic.{region}.api.aws/v1",
+    requiresKey: true,
+    requiresWorkspace: true,
+    api: "anthropic",
+    models: "anthropic",
+  },
 };

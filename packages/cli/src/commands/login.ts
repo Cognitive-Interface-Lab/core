@@ -24,6 +24,8 @@ export const KEY_PAGES: Record<string, string> = {
   openrouter: "https://openrouter.ai/settings/keys",
   cloudflare: "https://dash.cloudflare.com/profile/api-tokens",
   vercel: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
+  anthropic: "https://platform.claude.com/settings/keys",
+  "anthropic-aws": "https://platform.claude.com/docs/en/build-with-claude/claude-platform-on-aws",
 };
 
 const KEY_LABELS: Record<string, string> = {
@@ -32,6 +34,8 @@ const KEY_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   cloudflare: "Cloudflare",
   vercel: "Vercel AI Gateway",
+  anthropic: "Anthropic",
+  "anthropic-aws": "Claude Platform on AWS",
 };
 
 const OPTIONS = {

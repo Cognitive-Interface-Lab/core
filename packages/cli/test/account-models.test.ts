@@ -126,11 +126,11 @@ describe("core status", () => {
     await store.save("cloudflare", oauth());
 
     expect(await run(["status"], fake.io)).toBe(0);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, renews automatically)");
-    expect(lineFor(fake, "groq")).toBe("groq        from CORE_GROQ_API_KEY");
-    expect(lineFor(fake, "ollama")).toBe("ollama      no sign-in needed (http://127.0.0.1:11434/v1)");
-    expect(lineFor(fake, "openai")).toBe("openai      not signed in");
-    expect(lineFor(fake, "openrouter")).toBe("openrouter  signed in (key)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, renews automatically)");
+    expect(lineFor(fake, "groq")).toBe("groq           from CORE_GROQ_API_KEY");
+    expect(lineFor(fake, "ollama")).toBe("ollama         no sign-in needed (http://127.0.0.1:11434/v1)");
+    expect(lineFor(fake, "openai")).toBe("openai         not signed in");
+    expect(lineFor(fake, "openrouter")).toBe("openrouter     signed in (key)");
     expect(fake.stdout()).toContain("\nCredentials: memory\n");
     expect(fake.stdout()).toContain("Models: ollama:llama3.1, openrouter:openrouter/free\n");
     expect(fake.stderr()).toBe("");
@@ -141,17 +141,26 @@ describe("core status", () => {
     const { fake } = setup();
     await run(["status"], fake.io);
     const lines = fake.stdout().split("\n");
-    const names = lines.slice(0, 6).map((line) => line.split(/\s+/)[0]);
-    expect(names).toEqual(["cloudflare", "groq", "ollama", "openai", "openrouter", "vercel"]);
-    for (const line of lines.slice(0, 6)) expect(line.slice(0, 12).trimEnd()).toBe(line.split(/\s+/)[0]);
-    expect(lines[6]).toBe("");
+    const names = lines.slice(0, 8).map((line) => line.split(/\s+/)[0]);
+    expect(names).toEqual([
+      "anthropic",
+      "anthropic-aws",
+      "cloudflare",
+      "groq",
+      "ollama",
+      "openai",
+      "openrouter",
+      "vercel",
+    ]);
+    for (const line of lines.slice(0, 8)) expect(line.slice(0, 15).trimEnd()).toBe(line.split(/\s+/)[0]);
+    expect(lines[8]).toBe("");
   });
 
   it("shows the account of a saved key", async () => {
     const { fake, store } = setup();
     await store.save("cloudflare", { kind: "api-key", apiKey: "cf-token-333", accountId: "acct-7" });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (key, account acct-7)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (key, account acct-7)");
     expectNoSecrets(fake, ["cf-token-333"]);
   });
 
@@ -159,7 +168,7 @@ describe("core status", () => {
     const { fake, store } = setup();
     await store.save("cloudflare", withoutRefreshToken(minutes(9.5)));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, expires in 10 min)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, expires in 10 min)");
     expectNoSecrets(fake, ["access-secret-aaa"]);
   });
 
@@ -167,28 +176,28 @@ describe("core status", () => {
     const { fake, store } = setup();
     await store.save("cloudflare", withoutRefreshToken(Date.now() - 1000));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  sign-in expired");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     sign-in expired");
   });
 
   it("still says it renews automatically when a refresh token exists past the expiry", async () => {
     const { fake, store } = setup();
     await store.save("cloudflare", oauth({ expiresAt: Date.now() - 1000 }));
     await run(["status"], fake.io);
-    expect(lineFor(fake, "cloudflare")).toBe("cloudflare  signed in (browser, account acct-1, renews automatically)");
+    expect(lineFor(fake, "cloudflare")).toBe("cloudflare     signed in (browser, account acct-1, renews automatically)");
   });
 
   it("puts an environment variable ahead of a saved sign-in, and names the first variable set", async () => {
     const { fake, store } = setup({ env: { CORE_OPENROUTER_BASE_URL: "https://proxy.example.com/v1", CORE_OPENROUTER_ACCOUNT_ID: "a" } });
     await store.save("openrouter", { kind: "api-key", apiKey: "key-secret-111" });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "openrouter")).toBe("openrouter  from CORE_OPENROUTER_BASE_URL");
+    expect(lineFor(fake, "openrouter")).toBe("openrouter     from CORE_OPENROUTER_BASE_URL");
     expect(fake.stdout()).not.toContain("proxy.example.com");
   });
 
   it("shows Ollama's environment override instead of the default address", async () => {
     const { fake } = setup({ env: { CORE_OLLAMA_BASE_URL: "http://gpu-box:11434/v1" } });
     await run(["status"], fake.io);
-    expect(lineFor(fake, "ollama")).toBe("ollama      from CORE_OLLAMA_BASE_URL");
+    expect(lineFor(fake, "ollama")).toBe("ollama         from CORE_OLLAMA_BASE_URL");
   });
 
   it("says the models are not set when there is no route", async () => {

@@ -4,6 +4,7 @@ import {
   cloudflareRefresher,
 } from "@core/credentials";
 import {
+  AnthropicProvider,
   EnvCredentialStore,
   MockProvider,
   ModelRouter,
@@ -11,6 +12,7 @@ import {
   PRESETS,
   ProviderRegistry,
   type CredentialStore,
+  type ModelProvider,
 } from "@core/models";
 import type { Config } from "./config.js";
 import type { Io } from "./run.js";
@@ -48,14 +50,23 @@ export async function openGateway(io: Io, config: Config): Promise<Gateway> {
   return { registry, router, store, credentials, providers };
 }
 
-export function makeProvider(id: string, credentials: CredentialStore, io: Io): OpenAICompatibleProvider {
+/**
+ * The adapter that speaks the preset's wire format: Anthropic's Messages API, else OpenAI chat
+ * completions. Both can list their models, so `listModels` is not optional here.
+ */
+export function makeProvider(
+  id: string,
+  credentials: CredentialStore,
+  io: Io,
+): ModelProvider & Required<Pick<ModelProvider, "listModels">> {
   const preset = PRESETS[id];
-  return new OpenAICompatibleProvider({
+  const opts = {
     id,
     credentials,
     ...(preset ? { preset } : {}),
     fetch: io.fetch,
-  });
+  };
+  return preset?.api === "anthropic" ? new AnthropicProvider(opts) : new OpenAICompatibleProvider(opts);
 }
 
 /**
