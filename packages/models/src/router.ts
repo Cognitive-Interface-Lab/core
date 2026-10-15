@@ -3,16 +3,16 @@ import {
   formatModelRef,
   type ChatRequest,
   type ChatResponse,
-  type CoreErrorShape,
   type ErrorCode,
   type ModelRef,
+  type RouteAttempt,
   type StreamEvent,
 } from "@core/contracts";
 import type { ChatOptions } from "./provider.js";
 import type { ProviderRegistry } from "./registry.js";
 
 export type RouteStep = { model: ModelRef; timeoutMs?: number };
-export type Attempt = { model: ModelRef; ok: boolean; ms: number; error?: CoreErrorShape };
+export type Attempt = RouteAttempt;
 export type RoutedResponse = ChatResponse & { attempts: Attempt[] };
 
 const DEFAULT_TIMEOUT_MS = 30_000;
