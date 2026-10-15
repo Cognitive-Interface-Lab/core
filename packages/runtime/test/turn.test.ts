@@ -577,6 +577,35 @@ describe("runTurn: maxOutputTokens", () => {
   });
 });
 
+describe("runTurn: the per-request maxOutputTokens", () => {
+  const script = () => [toolRound([calculate("c1", "1+1")], THINKING), { text: "done" }];
+
+  it("reaches every model request of a turn with a tool round", async () => {
+    const { mock, finish } = await run(script(), { tools: registryOf(calculateTool), maxOutputTokens: 300 });
+    expect(finish.reason).toBe("stop");
+    expect(mock.calls).toHaveLength(2);
+    for (const call of mock.calls) expect(call.maxOutputTokens).toBe(300);
+  });
+
+  it("leaves the property out of every request when the option is not given", async () => {
+    const { mock } = await run(script(), { tools: registryOf(calculateTool) });
+    expect(mock.calls).toHaveLength(2);
+    for (const call of mock.calls) expect(call).not.toHaveProperty("maxOutputTokens");
+  });
+
+  it("is what the requests carry when budget.maxOutputTokens is also given, and the budget still ends the turn", async () => {
+    const { mock, finish } = await run(script(), {
+      tools: registryOf(calculateTool),
+      maxOutputTokens: 300,
+      budget: { maxOutputTokens: 10 },
+    });
+    expect(finish.reason).toBe("budget");
+    expect(finish.rounds).toBe(1);
+    expect(mock.calls).toHaveLength(1);
+    expect(mock.calls[0]?.maxOutputTokens).toBe(300);
+  });
+});
+
 describe("runTurn: maxWallMs", () => {
   it("ends with budget when the model is slower than the budget, without forwarding the aborted error", async () => {
     const { mock, options } = setup([{ text: "too late", delayMs: 2000 }], { budget: { maxWallMs: 50 } });
