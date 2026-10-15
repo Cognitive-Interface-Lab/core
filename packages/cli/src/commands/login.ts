@@ -13,6 +13,8 @@ import { envSource, makeProvider, openGateway } from "../setup.js";
 import { UsageError, type Command, type Io } from "../run.js";
 
 const VERIFY_TIMEOUT_MS = 15_000;
+/** The same rule the saved sign-in enforces: the region goes into a hostname. */
+const AWS_REGION = /^[a-z0-9-]+$/;
 
 /** Trilix's public Cloudflare OAuth client (PKCE, no secret); core's terminal callback is registered on it. */
 export const DEFAULT_CLOUDFLARE_OAUTH_CLIENT_ID = "f399a49cc3e2c96f6d1b06ef2b977c1b";
@@ -53,6 +55,8 @@ providers:
   openrouter            browser sign-in (default), or --key to paste an API key
   cloudflare            browser sign-in (default), or --key to paste an API token and account ID
   openai, groq, vercel  paste an API key; core opens the page that creates one
+  anthropic             paste an API key; core opens the page that creates one
+  anthropic-aws         Claude Platform on AWS: asks for region, workspace ID and API key
   ollama                needs no sign-in
 
 options:
@@ -137,7 +141,14 @@ async function obtain(provider: string, flags: Flags, io: Io, signal: AbortSigna
     const accountId = flags.accountId?.trim() || nonEmpty(await io.prompt.line("Cloudflare account ID: "));
     return { kind: "api-key", apiKey, accountId };
   }
-  const label = provider === "openrouter" ? "OpenRouter" : provider;
+  if (provider === "anthropic-aws") {
+    const region = nonEmpty(await io.prompt.line("AWS region (for example us-west-2): "));
+    if (!AWS_REGION.test(region)) throw new UsageError(`not an AWS region: ${region}`);
+    const workspaceId = nonEmpty(await io.prompt.line("Claude workspace ID: "));
+    const apiKey = nonEmpty(await io.prompt.secret("Claude Platform on AWS API key: "));
+    return { kind: "api-key", apiKey, region, workspaceId };
+  }
+  const label = provider === "openrouter" ? "OpenRouter" : provider === "anthropic" ? "Anthropic" : provider;
   return { kind: "api-key", apiKey: nonEmpty(await io.prompt.secret(`${label} API key: `)) };
 }
 

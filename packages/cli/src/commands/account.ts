@@ -66,7 +66,15 @@ export const statusCommand: Command = {
 
 async function describe(
   provider: string,
-  summary: { kind: "api-key" | "oauth"; accountId?: string | undefined; expiresAt?: number | undefined } | undefined,
+  summary:
+    | {
+        kind: "api-key" | "oauth";
+        accountId?: string | undefined;
+        region?: string | undefined;
+        workspaceId?: string | undefined;
+        expiresAt?: number | undefined;
+      }
+    | undefined,
   store: { read(providerId: string): Promise<{ kind: string; refreshToken?: string } | undefined> },
   io: Io,
 ): Promise<string> {
@@ -74,7 +82,13 @@ async function describe(
   if (variable) return `from ${variable}`;
 
   if (summary?.kind === "api-key") {
-    return `signed in (${["key", summary.accountId ? `account ${summary.accountId}` : undefined].filter(Boolean).join(", ")})`;
+    const parts = [
+      "key",
+      summary.accountId ? `account ${summary.accountId}` : undefined,
+      summary.workspaceId ? `workspace ${summary.workspaceId}` : undefined,
+      summary.region ? `region ${summary.region}` : undefined,
+    ];
+    return `signed in (${parts.filter(Boolean).join(", ")})`;
   }
   if (summary?.kind === "oauth") {
     const account = summary.accountId ? `account ${summary.accountId}` : undefined;
