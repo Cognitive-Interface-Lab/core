@@ -92,7 +92,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
   async chat(req: ChatRequest, opts?: ChatOptions): Promise<ChatResponse> {
     let secrets: string[] = [];
     try {
-      const resolved = await this.#resolve(req.model.model);
+      const resolved = await this.#resolve(req.model.model, req.outputSchema !== undefined);
       secrets = resolved.secrets;
       const result = await generateText({
         model: resolved.model,
@@ -186,7 +186,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
     }
   }
 
-  async #resolve(modelId: string): Promise<Resolved> {
+  async #resolve(modelId: string, structuredOutput = false): Promise<Resolved> {
     const credentials = await this.#credentials.get(this.id);
     const { baseURL, apiKey, secrets } = this.#connection(credentials);
     const provider = createOpenAICompatible({
@@ -196,6 +196,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
       ...(apiKey ? { apiKey } : {}),
       ...(credentials?.headers ? { headers: credentials.headers } : {}),
       ...(this.#fetch ? { fetch: this.#fetch } : {}),
+      // Without this the SDK sends only `json_object`, and the endpoint never sees the JSON Schema.
+      ...(structuredOutput ? { supportsStructuredOutputs: true } : {}),
     });
     return { model: provider.chatModel(modelId), secrets };
   }
