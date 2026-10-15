@@ -89,6 +89,7 @@ describe("OpenAICompatibleProvider capabilities", () => {
       streaming: true,
       tools: true,
       vision: false,
+      structuredOutput: true,
     });
   });
 
@@ -103,6 +104,7 @@ describe("OpenAICompatibleProvider capabilities", () => {
       tools: true,
       vision: true,
       contextWindow: 128_000,
+      structuredOutput: true,
     });
   });
 
@@ -117,8 +119,14 @@ describe("OpenAICompatibleProvider capabilities", () => {
       tools: true,
       vision: true,
       contextWindow: 64_000,
+      structuredOutput: true,
     });
-    expect(provider.capabilities("gpt-plain")).toEqual({ streaming: true, tools: true, vision: false });
+    expect(provider.capabilities("gpt-plain")).toEqual({
+      streaming: true,
+      tools: true,
+      vision: false,
+      structuredOutput: true,
+    });
   });
 
   it("passes the asked model id to the function on every call", () => {

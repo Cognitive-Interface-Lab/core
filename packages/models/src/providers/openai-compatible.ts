@@ -12,6 +12,8 @@ import {
 } from "@core/contracts";
 import {
   APICallError,
+  NoObjectGeneratedError,
+  Output,
   RetryError,
   generateText,
   jsonSchema,
@@ -22,11 +24,12 @@ import {
   type ModelMessage,
   type ToolSet,
 } from "ai";
+import { parseStructuredOutput } from "../structured.js";
 import type { CredentialStore, Credentials } from "../credentials.js";
 import type { ChatOptions, ModelProvider } from "../provider.js";
 import type { Preset } from "./presets.js";
 
-const DEFAULT_CAPABILITIES: ModelCapabilities = { streaming: true, tools: true, vision: false };
+const DEFAULT_CAPABILITIES: ModelCapabilities = { streaming: true, tools: true, vision: false, structuredOutput: true };
 const MAX_MESSAGE_LENGTH = 300;
 const MIN_SECRET_LENGTH = 4;
 const ACCOUNT_PLACEHOLDER = "{accountId}";
@@ -94,6 +97,7 @@ export class OpenAICompatibleProvider implements ModelProvider {
       const result = await generateText({
         model: resolved.model,
         ...this.#callOptions(req, opts),
+        ...(req.outputSchema ? { output: Output.object({ schema: jsonSchema(req.outputSchema as JSONSchema7) }) } : {}),
       });
       const toolCalls = result.toolCalls.map(
         (call): ToolCall => ({ id: call.toolCallId, name: call.toolName, arguments: asObject(call.input) }),
@@ -105,13 +109,38 @@ export class OpenAICompatibleProvider implements ModelProvider {
         message,
         finishReason: result.finishReason satisfies FinishReason,
         usage: toUsage(result.usage),
+        ...(req.outputSchema !== undefined ? { output: parseStructuredOutput(req.outputSchema, result.text) } : {}),
       };
     } catch (error) {
+      const recovered = this.#recoverStructured(req, error);
+      if (recovered) return recovered;
       throw this.#toCoreError(error, opts?.signal, secrets);
     }
   }
 
+  /**
+   * The SDK parses structured output with a strict `JSON.parse` and throws when that fails, so a
+   * fenced reply or invalid JSON never reaches the shared helper. Hand the reply text to it here,
+   * so every provider accepts and rejects the same text with the same message.
+   */
+  #recoverStructured(req: ChatRequest, error: unknown): ChatResponse | undefined {
+    if (req.outputSchema === undefined || !NoObjectGeneratedError.isInstance(error)) return undefined;
+    if (error.text === undefined) return undefined;
+    const output = parseStructuredOutput(req.outputSchema, error.text);
+    return {
+      model: req.model,
+      message: { role: "assistant", content: error.text },
+      finishReason: (error.finishReason ?? "stop") satisfies FinishReason,
+      usage: error.usage ? toUsage(error.usage) : {},
+      output,
+    };
+  }
+
   async *stream(req: ChatRequest, opts?: ChatOptions): AsyncGenerator<StreamEvent> {
+    if (req.outputSchema !== undefined) {
+      yield { type: "error", error: new CoreError("bad_request", "outputSchema is not supported when streaming").toJSON() };
+      return;
+    }
     let secrets: string[] = [];
     try {
       const resolved = await this.#resolve(req.model.model);
