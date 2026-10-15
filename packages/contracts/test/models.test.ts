@@ -117,7 +117,7 @@ describe("ModelCapabilitiesSchema", () => {
 
   it("keeps streaming, tools and vision required", () => {
     for (const key of ["streaming", "tools", "vision"] as const) {
-      const { [key]: _omitted, ...rest } = capabilities;
+      const rest = Object.fromEntries(Object.entries(capabilities).filter(([name]) => name !== key));
       expect(ModelCapabilitiesSchema.safeParse(rest).success, key).toBe(false);
     }
   });
