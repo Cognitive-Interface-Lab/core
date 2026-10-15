@@ -141,10 +141,10 @@ describe("core status", () => {
     const { fake } = setup();
     await run(["status"], fake.io);
     const lines = fake.stdout().split("\n");
-    const names = lines.slice(0, 5).map((line) => line.split(/\s+/)[0]);
-    expect(names).toEqual(["cloudflare", "groq", "ollama", "openai", "openrouter"]);
-    for (const line of lines.slice(0, 5)) expect(line.slice(0, 12).trimEnd()).toBe(line.split(/\s+/)[0]);
-    expect(lines[5]).toBe("");
+    const names = lines.slice(0, 6).map((line) => line.split(/\s+/)[0]);
+    expect(names).toEqual(["cloudflare", "groq", "ollama", "openai", "openrouter", "vercel"]);
+    for (const line of lines.slice(0, 6)) expect(line.slice(0, 12).trimEnd()).toBe(line.split(/\s+/)[0]);
+    expect(lines[6]).toBe("");
   });
 
   it("shows the account of a saved key", async () => {

@@ -12,7 +12,7 @@ export const configCommand: Command = {
 keys:
   route                       models to try in order, comma-separated provider:model
   timeout-ms                  per-attempt timeout in milliseconds
-  cloudflare.oauth-client-id  OAuth client ID for "core login cloudflare --browser" (public)`,
+  cloudflare.oauth-client-id  overrides the built-in OAuth client ID for "core login cloudflare"`,
   async run(args: string[], io: Io): Promise<number> {
     const [action, key, value, ...extra] = args;
 

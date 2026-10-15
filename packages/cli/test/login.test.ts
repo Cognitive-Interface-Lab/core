@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PRESETS } from "@core/models";
+import { DEFAULT_CLOUDFLARE_OAUTH_CLIENT_ID, KEY_PAGES } from "../src/commands/login.js";
 import { saveConfig } from "../src/config.js";
 import { run } from "../src/run.js";
 import { cleanupFakeIo, fakeIo, type FakeIo, type FakeIoOptions } from "./fake-io.js";
@@ -344,7 +346,7 @@ describe("core login: Cloudflare with an API token", () => {
   it("asks for the token and the account ID, verifies through the model search, and saves both", async () => {
     const api = http();
     const fake = fakeIo({ answers: { secret: [TOKEN], line: ["acct-123"] }, fetch: api.fetch });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(0);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(0);
 
     expect(fake.asked).toEqual(["Cloudflare API token (Workers AI read + edit): ", "Cloudflare account ID: "]);
     expect(api.calls).toHaveLength(1);
@@ -359,7 +361,7 @@ describe("core login: Cloudflare with an API token", () => {
   it("does not ask for the account ID when --account-id is given", async () => {
     const api = http();
     const fake = fakeIo({ answers: { secret: [TOKEN] }, fetch: api.fetch });
-    expect(await run(["login", "cloudflare", "--account-id", "acct-flag"], fake.io)).toBe(0);
+    expect(await run(["login", "cloudflare", "--key", "--account-id", "acct-flag"], fake.io)).toBe(0);
     expect(fake.asked).toEqual(["Cloudflare API token (Workers AI read + edit): "]);
     expect(api.calls[0]?.url).toContain("/accounts/acct-flag/ai/models/search");
     expect(await saved(fake, "cloudflare")).toMatchObject({ accountId: "acct-flag" });
@@ -377,7 +379,7 @@ describe("core login: Cloudflare with an API token", () => {
   ])("returns 2 for %s and saves nothing", async (_name, answers) => {
     const api = http();
     const fake = fakeIo({ answers, fetch: api.fetch });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(2);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(2);
     expect(api.calls).toHaveLength(0);
     expect(await fake.secrets.list()).toEqual([]);
   });
@@ -387,7 +389,7 @@ describe("core login: Cloudflare with an API token", () => {
       answers: { secret: [TOKEN], line: ["acct-1"] },
       fetch: providers(() => json({ success: false, errors: [{ code: 10000 }] }, 403)).fetch,
     });
-    expect(await run(["login", "cloudflare"], fake.io)).toBe(1);
+    expect(await run(["login", "cloudflare", "--key"], fake.io)).toBe(1);
     expect(fake.stderr()).toContain("error: auth: ");
     expect(await fake.secrets.list()).toEqual([]);
     expectNoSecrets(fake, [TOKEN]);
@@ -419,16 +421,6 @@ describe("core login: Cloudflare in the browser", () => {
     };
     return { api, opened, make: () => fakeIo(options) };
   }
-
-  it("returns 2, explaining both ways to set it, when there is no OAuth client ID", async () => {
-    const api = providers(() => json({}));
-    const fake = fakeIo({ fetch: api.fetch });
-    expect(await run(["login", "cloudflare", "--browser"], fake.io)).toBe(2);
-    expect(fake.stderr()).toContain("CORE_CLOUDFLARE_OAUTH_CLIENT_ID");
-    expect(fake.stderr()).toContain("core config set cloudflare.oauth-client-id");
-    expect(fake.opened).toEqual([]);
-    expect(api.calls).toHaveLength(0);
-  });
 
   it("signs in with the only account, verifies with the new token, and saves an oauth record", async () => {
     const { api, opened, make } = cloudflare([{ id: "acct-1", name: "Personal" }]);
@@ -570,5 +562,156 @@ describe("core login: Cloudflare in the browser", () => {
     const { code } = await login;
     expect(code).toBe(0);
     expect(opened).toEqual([]);
+  });
+});
+
+describe("core login: Cloudflare's built-in OAuth client", () => {
+  const ACCESS = "cf-access-builtin-ddd";
+  const REFRESH = "cf-refresh-builtin-eee";
+
+  const http = () =>
+    providers((call) => {
+      if (call.url === "https://dash.cloudflare.com/oauth2/token") {
+        return json({ access_token: ACCESS, refresh_token: REFRESH, expires_in: 3600 });
+      }
+      if (call.url === "https://api.cloudflare.com/client/v4/accounts") return json({ result: [{ id: "acct-1", name: "Personal" }] });
+      return json({ result: [{ name: "@cf/meta/m1" }] });
+    });
+
+  /** Runs `login cloudflare` with no flags; returns the client_id of each opened sign-in URL. */
+  async function signIn(env: Record<string, string>, configClientId?: string) {
+    const api = http();
+    const clientIds: string[] = [];
+    const opened: string[] = [];
+    const result = await loginRetrying(["login", "cloudflare"], async () => {
+      const fake = fakeIo({
+        env,
+        fetch: api.fetch,
+        openUrl: async (url) => {
+          opened.push(url);
+          clientIds.push(new URL(url).searchParams.get("client_id") ?? "");
+          await approve(url, "redirect_uri", (auth) => ({ code: "cf-code-fff", state: auth.searchParams.get("state") ?? "" }));
+        },
+      });
+      if (configClientId !== undefined) await saveConfig(fake.io.configDir, { cloudflare: { oauthClientId: configClientId } });
+      return fake;
+    });
+    return { ...result, clientIds, opened };
+  }
+
+  it("signs in through the browser with the built-in client ID and no setup", async () => {
+    const { code, fake, clientIds, opened } = await signIn({});
+    expect(code).toBe(0);
+    const auth = new URL(opened.at(-1) ?? "");
+    expect(`${auth.origin}${auth.pathname}`).toBe("https://dash.cloudflare.com/oauth2/auth");
+    expect(clientIds.at(-1)).toBe(DEFAULT_CLOUDFLARE_OAUTH_CLIENT_ID);
+    expect(fake.asked).toEqual([]);
+    expect(await saved(fake, "cloudflare")).toMatchObject({ kind: "oauth", accountId: "acct-1" });
+    expectNoSecrets(fake, [ACCESS, REFRESH, "cf-code-fff"]);
+  });
+
+  it("prefers the config's client ID over the built-in one", async () => {
+    const { code, clientIds } = await signIn({}, "config-client-7");
+    expect(code).toBe(0);
+    expect(clientIds.at(-1)).toBe("config-client-7");
+  });
+
+  it("prefers the environment's client ID over the config's", async () => {
+    const { code, clientIds } = await signIn({ CORE_CLOUDFLARE_OAUTH_CLIENT_ID: "env-client-8" }, "config-client-7");
+    expect(code).toBe(0);
+    expect(clientIds.at(-1)).toBe("env-client-8");
+  });
+});
+
+describe("core login: key pages", () => {
+  const LABELS: Record<string, string> = {
+    openai: "OpenAI",
+    groq: "Groq",
+    vercel: "Vercel AI Gateway",
+    openrouter: "OpenRouter",
+    cloudflare: "Cloudflare",
+  };
+
+  const anyProvider = () =>
+    providers((call) =>
+      call.url.startsWith("https://api.cloudflare.com/") ? json({ result: [{ name: "@cf/meta/m1" }] }) : modelList(["m1", "m2"]),
+    );
+
+  it.each(["openai", "groq", "vercel"])("%s opens its key page, then asks for the key", async (provider) => {
+    const fake = fakeIo({ interactive: true, answers: { secret: ["key-page-value-1"] }, fetch: anyProvider().fetch });
+    expect(await run(["login", provider], fake.io)).toBe(0);
+    expect(fake.opened).toEqual([KEY_PAGES[provider]]);
+    expect(fake.stderr()).toContain(`Create a ${LABELS[provider]} API key on this page, then paste it below:`);
+    expect(fake.stderr()).toContain(KEY_PAGES[provider]);
+    expect(await saved(fake, provider)).toEqual({ kind: "api-key", apiKey: "key-page-value-1" });
+  });
+
+  it.each([
+    ["openrouter", ["login", "openrouter", "--key"]],
+    ["cloudflare", ["login", "cloudflare", "--key", "--account-id", "acct-1"]],
+  ])("%s with --key opens its key page", async (provider, argv) => {
+    const fake = fakeIo({ interactive: true, answers: { secret: ["key-page-value-2"] }, fetch: anyProvider().fetch });
+    expect(await run(argv, fake.io)).toBe(0);
+    expect(fake.opened).toEqual([KEY_PAGES[provider]]);
+    expect(fake.stderr()).toContain(`Create a ${LABELS[provider]} API key on this page, then paste it below:`);
+  });
+
+  it("--no-open prints the key page without opening it", async () => {
+    const fake = fakeIo({ interactive: true, answers: { secret: ["key-page-value-3"] }, fetch: anyProvider().fetch });
+    expect(await run(["login", "openai", "--no-open"], fake.io)).toBe(0);
+    expect(fake.opened).toEqual([]);
+    expect(fake.stderr()).toContain(KEY_PAGES["openai"]);
+  });
+
+  it("opens and prints nothing when the key comes from piped input", async () => {
+    const fake = fakeIo({ interactive: false, answers: { secret: ["key-page-value-4"] }, fetch: anyProvider().fetch });
+    expect(await run(["login", "openai"], fake.io)).toBe(0);
+    expect(fake.opened).toEqual([]);
+    expect(fake.stderr()).toBe("");
+  });
+
+  it("opens no key page on the browser path", async () => {
+    const opened: string[] = [];
+    const http = providers((call) =>
+      call.url === "https://openrouter.ai/api/v1/auth/keys" ? json({ key: "sk-or-issued-key-999" }) : modelList(["a"]),
+    );
+    const fake = fakeIo({
+      interactive: true,
+      fetch: http.fetch,
+      openUrl: async (url) => {
+        opened.push(url);
+        await approve(url, "callback_url", () => ({ code: "the-code-000" }));
+      },
+    });
+    expect(await run(["login", "openrouter"], fake.io)).toBe(0);
+    expect(opened).toHaveLength(1);
+    const auth = new URL(opened[0] ?? "");
+    expect(`${auth.origin}${auth.pathname}`).toBe("https://openrouter.ai/auth");
+  });
+
+  it("has a key page for every preset that needs a key", () => {
+    for (const [id, preset] of Object.entries(PRESETS)) {
+      if (preset.requiresKey) expect(Object.keys(KEY_PAGES)).toContain(id);
+    }
+  });
+});
+
+describe("core login: Vercel AI Gateway", () => {
+  it("verifies the key against the gateway's /models and saves it", async () => {
+    const http = providers(() => modelList(["anthropic/claude-sonnet-4", "openai/gpt-5", "xai/grok-4"]));
+    const fake = fakeIo({ answers: { secret: ["vck-secret-777"] }, fetch: http.fetch });
+    expect(await run(["login", "vercel"], fake.io)).toBe(0);
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]?.url).toBe("https://ai-gateway.vercel.sh/v1/models");
+    expect(http.calls[0]?.headers.get("authorization")).toBe("Bearer vck-secret-777");
+    expect(fake.stdout()).toContain("Signed in to vercel (3 models available).");
+    expect(await saved(fake, "vercel")).toEqual({ kind: "api-key", apiKey: "vck-secret-777" });
+    expectNoSecrets(fake, ["vck-secret-777"]);
+  });
+
+  it("has no browser sign-in", async () => {
+    const fake = fakeIo({ fetch: providers(() => modelList(["m"])).fetch });
+    expect(await run(["login", "vercel", "--browser"], fake.io)).toBe(2);
+    expect(await fake.secrets.list()).toEqual([]);
   });
 });

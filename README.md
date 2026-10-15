@@ -37,7 +37,15 @@ If `core` is still not found, add `~/.local/bin` to your PATH (most Linux shells
     core ask "hello"
     core chat
 
-Sign in to a provider with `core login openrouter` (browser), `core login cloudflare` (API token and account ID) or `core login openai` / `core login groq` (API key). Ollama needs no sign-in. Sign-ins go to the OS keychain when one is available. `core help <command>` shows each command's options.
+Sign in to a provider:
+
+    core login openrouter      # opens the browser; approve there and you are signed in
+    core login cloudflare      # the same, by link (--key pastes an API token and account ID instead)
+    core login openai          # also groq and vercel: opens the page that creates an API key, then asks you to paste it
+
+Ollama needs no sign-in. If the browser should not open by itself, add `--no-open` and core prints the link for you to open on this machine. Sign-ins go to the OS keychain when one is available. `core help <command>` shows each command's options.
+
+Vercel AI Gateway reaches many providers' models with one key. Sign in with `core login vercel`, then route to a model by its gateway name, for example `core config set route vercel:openai/gpt-4o-mini`.
 
 To update later, pull and rebuild in the same folder. The link keeps working:
 
@@ -64,6 +72,7 @@ Every milestone ends with something runnable.
 | M2 Tools, MCP and runtime | An example agent calls a local tool and an MCP server |
 | M2b Local CLI and credentials | `core ask` and `core chat` answer from any terminal, with saved sign-ins for OpenRouter, Cloudflare and Ollama |
 | M2c Tab completion | Tab completes `core` commands, options, providers and Ollama model names in bash |
+| M2d Browser sign-in and Vercel | `core login cloudflare` signs in by link, key-based logins open the page that creates the key, and Vercel AI Gateway is a provider |
 | M3 Process graph and event log | A branched conversation is stored and replayed from its events |
 | M4 Server, auth and clients | The same over HTTP, from the generated TypeScript and Python clients |
 | M5 Trilix on core | Trilix's web app runs its chats through the backbone |
