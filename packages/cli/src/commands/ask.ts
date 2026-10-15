@@ -3,14 +3,25 @@ import {
   CoreError,
   CoreErrorShapeSchema,
   ModelRefSchema,
+  RouteAttemptSchema,
   formatModelRef,
+  type AskResult,
   type CoreErrorShape,
+  type Message,
   type ModelRef,
+  type RouteAttempt,
   type TurnEvent,
 } from "@core/contracts";
-import { ModelRouter, ProviderRegistry, type ModelProvider } from "@core/models";
+import {
+  ModelRouter,
+  ProviderRegistry,
+  type ModelProvider,
+  type RoutedResponse,
+  type RouteStep,
+} from "@core/models";
 import { runTurn } from "@core/runtime";
 import { ToolRegistry } from "@core/tools";
+import { parseTimeout, readSchemaFile, readSystemFile } from "../ask-input.js";
 import { loadConfig, resolveRoute, type Config } from "../config.js";
 import { openGateway } from "../setup.js";
 import { UsageError, type Command, type Io } from "../run.js";
@@ -141,45 +152,213 @@ function failedAttemptLines(attempts: unknown): string[] {
   return lines;
 }
 
+/** How a call through `router.chat` ended. */
+type ChatOutcome =
+  | { kind: "answered"; response: RoutedResponse }
+  | { kind: "failed"; error: CoreError }
+  | { kind: "interrupted" };
+
+/** One non-streaming call through the route. Ctrl+C wins over whatever the router reports. */
+async function chatOnce(
+  router: ModelRouter,
+  steps: RouteStep[],
+  messages: Message[],
+  outputSchema: Record<string, unknown> | undefined,
+  signal: AbortSignal,
+): Promise<ChatOutcome> {
+  try {
+    const response = await router.chat({ messages, ...(outputSchema !== undefined && { outputSchema }) }, steps, { signal });
+    return signal.aborted ? { kind: "interrupted" } : { kind: "answered", response };
+  } catch (error) {
+    if (signal.aborted) return { kind: "interrupted" };
+    if (CoreError.is(error)) return { kind: "failed", error };
+    throw error;
+  }
+}
+
+type AskFailure = Extract<AskResult, { ok: false }>;
+
+/** The failure result's error: the shape without `details`, because the attempts are already top level. */
+function resultError(error: CoreErrorShape): AskFailure["error"] {
+  return {
+    code: error.code,
+    message: error.message,
+    retryable: error.retryable,
+    ...(error.provider !== undefined && { provider: error.provider }),
+  };
+}
+
+/** The router's attempt log when `value` is one, else nothing: a malformed log is not worth failing over. */
+function routeAttempts(value: unknown): RouteAttempt[] {
+  const parsed = RouteAttemptSchema.array().safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+/** The `--json` result for how a `router.chat` call ended. `output` is only there when a schema was given. */
+function askResult(outcome: ChatOutcome, withOutput: boolean): AskResult {
+  switch (outcome.kind) {
+    case "answered": {
+      const { response } = outcome;
+      return {
+        ok: true,
+        model: response.model,
+        text: response.message.content,
+        ...(withOutput && { output: response.output }),
+        usage: response.usage,
+        attempts: response.attempts,
+      };
+    }
+    case "failed":
+      return {
+        ok: false,
+        error: resultError(outcome.error.toJSON()),
+        attempts: routeAttempts(outcome.error.details?.["attempts"]),
+      };
+    case "interrupted":
+      return { ok: false, error: { code: "aborted", message: "request aborted", retryable: false }, attempts: [] };
+  }
+}
+
+/**
+ * The `--json` result for a failure that did not come from the route: a usage error is
+ * `bad_request`, a `CoreError` keeps its code, anything else is `unknown`. The message is the one
+ * `run.ts` prints to stderr.
+ */
+function failureResult(error: unknown): AskResult {
+  const message = error instanceof Error ? error.message : "unexpected failure";
+  if (error instanceof UsageError) {
+    return { ok: false, error: { code: "bad_request", message, retryable: false }, attempts: [] };
+  }
+  const code = CoreError.is(error) ? error.code : "unknown";
+  const retryable = CoreError.is(error) ? error.retryable : false;
+  return { ok: false, error: { code, message, retryable }, attempts: [] };
+}
+
+/**
+ * Prints the end of a `router.chat` call and returns the exit code. stdout carries the answer: the
+ * validated object as one line of JSON when a schema was given, the reply text otherwise; with
+ * `--json` it carries the `AskResult` instead, on every outcome. Failed attempts, the model that
+ * answered and an error go to stderr, in the same lines as the streaming path, with or without `--json`.
+ */
+function reportChat(outcome: ChatOutcome, io: Io, mode: { json: boolean; schema: boolean }): number {
+  if (mode.json) io.stdout.write(`${JSON.stringify(askResult(outcome, mode.schema))}\n`);
+  switch (outcome.kind) {
+    case "interrupted":
+      return 130;
+    case "failed": {
+      for (const line of failedAttemptLines(outcome.error.details?.["attempts"])) io.stderr.write(line);
+      io.stderr.write(`error: ${outcome.error.code}: ${outcome.error.message}\n`);
+      return 1;
+    }
+    case "answered": {
+      const { response } = outcome;
+      if (!mode.json) io.stdout.write(`${mode.schema ? JSON.stringify(response.output) : response.message.content}\n`);
+      response.attempts.forEach((attempt, index) => {
+        if (!attempt.ok && attempt.error) io.stderr.write(attemptLine(index + 1, attempt.model, attempt.error));
+      });
+      io.stderr.write(`[${formatModelRef(response.model)}]\n`);
+      return 0;
+    }
+  }
+}
+
+const OPTIONS = {
+  model: { type: "string" },
+  "system-file": { type: "string" },
+  schema: { type: "string" },
+  json: { type: "boolean" },
+  timeout: { type: "string" },
+} as const;
+
+function parseAskArgs(args: string[]) {
+  try {
+    return parseArgs({ args, options: OPTIONS, allowPositionals: true, strict: true });
+  } catch (error) {
+    throw new UsageError(error instanceof Error ? error.message : "invalid arguments");
+  }
+}
+
 export const askCommand: Command = {
   summary: "ask one question and print the answer",
-  usage: `[--model <provider:model,...>] <prompt...>
+  usage: `[--model <provider:model,...>] [--system-file <file>] [--schema <file>] [--json] [--timeout <ms>] <prompt...>
 
 The prompt is the remaining arguments, or standard input when piped and no arguments are given.
 Models are tried in order until one answers; without --model the route is CORE_ROUTE, then
-"core config set route ...".`,
+"core config set route ...".
+
+--system-file sends the file's contents as a system message before the prompt. A file that is
+missing or empty is a usage error (exit 2).
+
+--schema takes a file holding a JSON Schema object. core validates the answer against it and prints
+the validated object as one line of JSON. A reply that is not valid JSON or does not match exits 1
+with "unknown"; a route with no structured-output support exits 1 with "bad_request". A file that is
+missing, not JSON or not an object is a usage error (exit 2), reported before any model is called.
+The answer is not streamed.
+
+--json prints one line of JSON on stdout instead of the answer text. On success it is
+{ ok: true, model, text, output, usage, attempts }, where output is there only with --schema. On
+failure it is { ok: false, error: { code, message, retryable }, attempts }. Every failure after the
+arguments are parsed prints a result, usage errors included (code "bad_request", exit 2); stderr and
+the exit codes do not change. The answer is not streamed.
+
+--timeout sets the time limit in milliseconds for each model in the route, in place of timeoutMs
+from the config. It must be a positive whole number, otherwise it is a usage error (exit 2).`,
   async run(args: string[], io: Io): Promise<number> {
-    let parsed: ReturnType<typeof parseArgs<{ options: { model: { type: "string" } }; allowPositionals: true }>>;
+    // A failure to parse the arguments prints no result: `--json` is not known yet.
+    const parsed = parseAskArgs(args);
     try {
-      parsed = parseArgs({ args, options: { model: { type: "string" } }, allowPositionals: true, strict: true });
+      return await ask(parsed, io);
     } catch (error) {
-      throw new UsageError(error instanceof Error ? error.message : "invalid arguments");
-    }
-
-    const config = await loadConfig(io.configDir);
-    const route = chooseRoute(parsed.values.model, io.env, config);
-
-    let prompt = parsed.positionals.join(" ").trim();
-    if (prompt === "" && !io.interactive) prompt = (await io.readAll()).trim();
-    if (prompt === "") throw new UsageError("no prompt given; pass it as arguments or pipe it in");
-
-    const { router, log } = await openTurnRouter(io, config);
-    const interrupted = new AbortController();
-    const unsubscribe = io.onInterrupt(() => interrupted.abort());
-    try {
-      const events = runTurn({
-        router,
-        route: route.map((model) => ({ model })),
-        tools: new ToolRegistry(),
-        channel: "local",
-        messages: [{ role: "user", content: prompt }],
-        signal: interrupted.signal,
-      });
-      const finish = await printTurn(events, io, log);
-      if (interrupted.signal.aborted) return 130;
-      return finish.reason === "stop" ? 0 : 1;
-    } finally {
-      unsubscribe();
+      // What a program reads is stdout, so a failure that did not come from the route still prints
+      // a result; the error then goes on to `run.ts`, which reports it on stderr and picks the exit code.
+      if (parsed.values.json === true) io.stdout.write(`${JSON.stringify(failureResult(error))}\n`);
+      throw error;
     }
   },
 };
+
+type AskArgs = ReturnType<typeof parseAskArgs>;
+
+async function ask(parsed: AskArgs, io: Io): Promise<number> {
+  const { model: modelFlag, "system-file": systemFile, schema: schemaFile, json, timeout } = parsed.values;
+
+  const config = await loadConfig(io.configDir);
+  const route = chooseRoute(modelFlag, io.env, config);
+
+  let prompt = parsed.positionals.join(" ").trim();
+  if (prompt === "" && !io.interactive) prompt = (await io.readAll()).trim();
+  if (prompt === "") throw new UsageError("no prompt given; pass it as arguments or pipe it in");
+
+  const system = systemFile === undefined ? undefined : await readSystemFile(systemFile);
+  const outputSchema = schemaFile === undefined ? undefined : await readSchemaFile(schemaFile);
+  const timeoutMs = timeout === undefined ? undefined : parseTimeout(timeout);
+
+  const messages: Message[] = [
+    ...(system === undefined ? [] : [{ role: "system" as const, content: system }]),
+    { role: "user", content: prompt },
+  ];
+  const steps: RouteStep[] = route.map((model) => ({ model, ...(timeoutMs !== undefined && { timeoutMs }) }));
+
+  const { router, log } = await openTurnRouter(io, config);
+  const interrupted = new AbortController();
+  const unsubscribe = io.onInterrupt(() => interrupted.abort());
+  try {
+    if (outputSchema !== undefined || json === true) {
+      const outcome = await chatOnce(router, steps, messages, outputSchema, interrupted.signal);
+      return reportChat(outcome, io, { json: json === true, schema: outputSchema !== undefined });
+    }
+    const events = runTurn({
+      router,
+      route: steps,
+      tools: new ToolRegistry(),
+      channel: "local",
+      messages,
+      signal: interrupted.signal,
+    });
+    const finish = await printTurn(events, io, log);
+    if (interrupted.signal.aborted) return 130;
+    return finish.reason === "stop" ? 0 : 1;
+  } finally {
+    unsubscribe();
+  }
+}

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CoreError } from "./errors.js";
+import { CoreError, CoreErrorShapeSchema } from "./errors.js";
 import { AssistantMessageSchema, MessageSchema } from "./messages.js";
 import { ToolDefinitionSchema } from "./tools.js";
 
@@ -73,3 +73,30 @@ export const ChatResponseSchema = z.object({
   output: z.unknown().optional(),
 });
 export type ChatResponse = z.infer<typeof ChatResponseSchema>;
+
+/** One step of a routed call, in route order. `error` is present when `ok` is false. */
+export const RouteAttemptSchema = z.object({
+  model: ModelRefSchema,
+  ok: z.boolean(),
+  ms: z.number().int().nonnegative(),
+  error: CoreErrorShapeSchema.optional(),
+});
+export type RouteAttempt = z.infer<typeof RouteAttemptSchema>;
+
+/** The `core ask --json` result. `output` is present only when the request carried an `outputSchema`. */
+export const AskResultSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    model: ModelRefSchema,
+    text: z.string(),
+    output: z.unknown().optional(),
+    usage: UsageSchema,
+    attempts: z.array(RouteAttemptSchema),
+  }),
+  z.object({
+    ok: z.literal(false),
+    error: CoreErrorShapeSchema.omit({ details: true }),
+    attempts: z.array(RouteAttemptSchema),
+  }),
+]);
+export type AskResult = z.infer<typeof AskResultSchema>;
