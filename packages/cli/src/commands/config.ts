@@ -2,7 +2,7 @@ import { CoreError, parseModelRef } from "@core/contracts";
 import { loadConfig, saveConfig, splitRoute, type Config } from "../config.js";
 import { UsageError, type Command, type Io } from "../run.js";
 
-const KEYS = ["route", "timeout-ms", "cloudflare.oauth-client-id"] as const;
+export const KEYS = ["route", "timeout-ms", "cloudflare.oauth-client-id"] as const;
 type Key = (typeof KEYS)[number];
 
 export const configCommand: Command = {
