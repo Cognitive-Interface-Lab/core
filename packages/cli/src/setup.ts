@@ -71,7 +71,8 @@ export function makeProvider(
 
 /**
  * The name of the first set variable among `CORE_<ID>_API_KEY`, `_BASE_URL`, `_ACCOUNT_ID`,
- * `_REGION` and `_WORKSPACE_ID` (checked in that order), or `undefined`. Lets a command say where a credential comes from without ever printing its value.
+ * `_REGION` and `_WORKSPACE_ID` (checked in that order), or `undefined`. Lets a command say where
+ * a credential comes from without ever printing its value.
  */
 export function envSource(env: Record<string, string | undefined>, providerId: string): string | undefined {
   const id = providerId.toUpperCase().replace(/[^A-Z0-9]/g, "_");
