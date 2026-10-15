@@ -715,3 +715,184 @@ describe("core login: Vercel AI Gateway", () => {
     expect(await fake.secrets.list()).toEqual([]);
   });
 });
+
+describe("core login: Anthropic", () => {
+  const claudeModels = (ids: string[]) =>
+    json({ data: ids.map((id) => ({ type: "model", id })), has_more: false, first_id: ids[0] ?? null, last_id: ids.at(-1) ?? null });
+
+  const SYNOPSIS = "usage: core login <provider> [--key] [--browser] [--account-id <id>] [--no-open]";
+
+  it("opens the Claude Console key page, asks for the key, verifies it against /models and saves it", async () => {
+    const http = providers(() => claudeModels(["claude-sonnet-4-5", "claude-opus-5-5", "claude-haiku-4-5"]));
+    const fake = fakeIo({ interactive: true, answers: { secret: ["sk-ant-secret-111"] }, fetch: http.fetch });
+
+    expect(await run(["login", "anthropic"], fake.io)).toBe(0);
+
+    expect(fake.opened).toEqual(["https://platform.claude.com/settings/keys"]);
+    expect(fake.stderr()).toContain("Create a Anthropic API key on this page, then paste it below:");
+    expect(fake.stderr()).toContain("https://platform.claude.com/settings/keys");
+    expect(fake.asked).toEqual(["Anthropic API key: "]);
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]?.method).toBe("GET");
+    expect(http.calls[0]?.url).toBe("https://api.anthropic.com/v1/models?limit=1000");
+    expect(http.calls[0]?.headers.get("x-api-key")).toBe("sk-ant-secret-111");
+    expect(http.calls[0]?.headers.has("authorization")).toBe(false);
+    expect(fake.stdout()).toBe("Signed in to anthropic (3 models available). Saved in memory.\n");
+    expect(await saved(fake, "anthropic")).toEqual({ kind: "api-key", apiKey: "sk-ant-secret-111" });
+    expectNoSecrets(fake, ["sk-ant-secret-111"]);
+  });
+
+  it("--no-open prints the key page without opening it", async () => {
+    const fake = fakeIo({ interactive: true, answers: { secret: ["sk-ant-secret-112"] }, fetch: providers(() => claudeModels(["m"])).fetch });
+    expect(await run(["login", "anthropic", "--no-open"], fake.io)).toBe(0);
+    expect(fake.opened).toEqual([]);
+    expect(fake.stderr()).toContain("https://platform.claude.com/settings/keys");
+  });
+
+  it("opens and prints nothing when the key comes from piped input, and trims it", async () => {
+    const http = providers(() => claudeModels(["m"]));
+    const fake = fakeIo({ interactive: false, answers: { secret: ["  sk-ant-secret-113  "] }, fetch: http.fetch });
+    expect(await run(["login", "anthropic"], fake.io)).toBe(0);
+    expect(fake.opened).toEqual([]);
+    expect(fake.stderr()).toBe("");
+    expect(http.calls[0]?.headers.get("x-api-key")).toBe("sk-ant-secret-113");
+    expect(await saved(fake, "anthropic")).toEqual({ kind: "api-key", apiKey: "sk-ant-secret-113" });
+  });
+
+  it("accepts --key", async () => {
+    const fake = fakeIo({ answers: { secret: ["sk-ant-secret-114"] }, fetch: providers(() => claudeModels(["m"])).fetch });
+    expect(await run(["login", "anthropic", "--key"], fake.io)).toBe(0);
+    expect(await saved(fake, "anthropic")).toEqual({ kind: "api-key", apiKey: "sk-ant-secret-114" });
+  });
+
+  it("returns 2 and saves nothing for an empty key", async () => {
+    const http = providers(() => claudeModels(["m"]));
+    const fake = fakeIo({ answers: { secret: ["   "] }, fetch: http.fetch });
+    expect(await run(["login", "anthropic"], fake.io)).toBe(2);
+    expect(http.calls).toHaveLength(0);
+    expect(await fake.secrets.list()).toEqual([]);
+  });
+
+  it("lists the models with the AWS region and workspace for anthropic-aws, and saves all three", async () => {
+    const http = providers(() => claudeModels(["claude-opus-5-5", "claude-haiku-4-5"]));
+    const fake = fakeIo({
+      interactive: true,
+      answers: { line: ["  us-west-2 ", " wrkspc_01 "], secret: ["  sk-aws-secret-211  "] },
+      fetch: http.fetch,
+    });
+
+    expect(await run(["login", "anthropic-aws"], fake.io)).toBe(0);
+
+    expect(fake.opened).toEqual(["https://platform.claude.com/docs/en/build-with-claude/claude-platform-on-aws"]);
+    expect(fake.stderr()).toContain("Create a Claude Platform on AWS API key on this page, then paste it below:");
+    expect(fake.asked).toEqual([
+      "AWS region (for example us-west-2): ",
+      "Claude workspace ID: ",
+      "Claude Platform on AWS API key: ",
+    ]);
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]?.url).toBe("https://aws-external-anthropic.us-west-2.api.aws/v1/models?limit=1000");
+    expect(http.calls[0]?.headers.get("x-api-key")).toBe("sk-aws-secret-211");
+    expect(http.calls[0]?.headers.get("anthropic-workspace-id")).toBe("wrkspc_01");
+    expect(fake.stdout()).toBe("Signed in to anthropic-aws (2 models available). Saved in memory.\n");
+    expect(await saved(fake, "anthropic-aws")).toEqual({
+      kind: "api-key",
+      apiKey: "sk-aws-secret-211",
+      region: "us-west-2",
+      workspaceId: "wrkspc_01",
+    });
+    expectNoSecrets(fake, ["sk-aws-secret-211"]);
+  });
+
+  it.each([["US West"], ["a/b"], ["us_west_2"], ["us-west-2.evil.example"]])(
+    "returns 2 for the region %j, asks nothing more, sends nothing and saves nothing",
+    async (region) => {
+      const http = providers(() => claudeModels(["m"]));
+      const fake = fakeIo({ answers: { line: [region, "wrkspc_01"], secret: ["sk-aws-secret-212"] }, fetch: http.fetch });
+
+      expect(await run(["login", "anthropic-aws"], fake.io)).toBe(2);
+
+      expect(fake.stderr()).toContain(`not an AWS region: ${region}`);
+      expect(fake.asked).toEqual(["AWS region (for example us-west-2): "]);
+      expect(http.calls).toHaveLength(0);
+      expect(await fake.secrets.list()).toEqual([]);
+      expectNoSecrets(fake, ["sk-aws-secret-212"]);
+    },
+  );
+
+  it.each([
+    ["no region", { line: ["  "], secret: ["sk-aws-secret-213"] }],
+    ["no workspace ID", { line: ["us-west-2", "  "], secret: ["sk-aws-secret-213"] }],
+    ["no key", { line: ["us-west-2", "wrkspc_01"], secret: ["  "] }],
+  ])("returns 2 and saves nothing for %s", async (_name, answers) => {
+    const http = providers(() => claudeModels(["m"]));
+    const fake = fakeIo({ answers, fetch: http.fetch });
+    expect(await run(["login", "anthropic-aws"], fake.io)).toBe(2);
+    expect(fake.stderr()).toContain("nothing entered");
+    expect(http.calls).toHaveLength(0);
+    expect(await fake.secrets.list()).toEqual([]);
+  });
+
+  it("saves nothing, exits non-zero with auth, and never prints the key when the workspace ID is wrong", async () => {
+    const http = providers(() =>
+      json({ type: "error", error: { type: "permission_error", message: "no access for sk-aws-secret-214" } }, 403),
+    );
+    const fake = fakeIo({ answers: { line: ["us-west-2", "wrkspc_wrong"], secret: ["sk-aws-secret-214"] }, fetch: http.fetch });
+
+    const code = await run(["login", "anthropic-aws"], fake.io);
+
+    expect(code).not.toBe(0);
+    expect(fake.stderr()).toContain("auth");
+    expect(http.calls).toHaveLength(1);
+    expect(http.calls[0]?.headers.get("anthropic-workspace-id")).toBe("wrkspc_wrong");
+    expect(await fake.secrets.list()).toEqual([]);
+    expectNoSecrets(fake, ["sk-aws-secret-214"]);
+  });
+
+  it("saves nothing and exits non-zero with auth for a rejected Anthropic key", async () => {
+    const http = providers(() => json({ type: "error", error: { type: "authentication_error", message: "invalid x-api-key" } }, 401));
+    const fake = fakeIo({ answers: { secret: ["sk-ant-secret-115"] }, fetch: http.fetch });
+    expect(await run(["login", "anthropic"], fake.io)).not.toBe(0);
+    expect(fake.stderr()).toContain("auth");
+    expect(await fake.secrets.list()).toEqual([]);
+    expectNoSecrets(fake, ["sk-ant-secret-115"]);
+  });
+
+  it.each(["anthropic", "anthropic-aws"])("returns 2 for %s with --browser, since it has no browser sign-in", async (provider) => {
+    const http = providers(() => claudeModels(["m"]));
+    const fake = fakeIo({ fetch: http.fetch });
+    expect(await run(["login", provider, "--browser"], fake.io)).toBe(2);
+    expect(fake.stderr()).toContain(`${provider} has no browser sign-in`);
+    expect(http.calls).toHaveLength(0);
+    expect(await fake.secrets.list()).toEqual([]);
+  });
+
+  it.each(["anthropic", "anthropic-aws"])("returns 2 for %s with --account-id, which is Cloudflare's", async (provider) => {
+    const fake = fakeIo({ fetch: providers(() => claudeModels(["m"])).fetch });
+    expect(await run(["login", provider, "--account-id", "acct"], fake.io)).toBe(2);
+    expect(fake.stderr()).toContain("--account-id only applies to cloudflare");
+  });
+
+  it("warns when an environment variable of anthropic-aws will take precedence over the saved sign-in", async () => {
+    const fake = fakeIo({
+      env: { CORE_ANTHROPIC_AWS_REGION: "eu-west-1" },
+      answers: { line: ["us-west-2", "wrkspc_01"], secret: ["sk-aws-secret-215"] },
+      fetch: providers(() => claudeModels(["m"])).fetch,
+    });
+    expect(await run(["login", "anthropic-aws"], fake.io)).toBe(0);
+    expect(fake.stderr()).toContain("warning: CORE_ANTHROPIC_AWS_REGION is set and takes precedence over the saved sign-in");
+  });
+
+  it("keeps the synopsis line byte-identical and lists both providers in the help", async () => {
+    const fake = fakeIo();
+    expect(await run(["login", "--help"], fake.io)).toBe(0);
+    const lines = fake.stdout().split("\n");
+    expect(lines[0]).toBe(SYNOPSIS);
+    expect(lines).toContain("  anthropic             paste an API key; core opens the page that creates one");
+    expect(lines).toContain("  anthropic-aws         Claude Platform on AWS: asks for region, workspace ID and API key");
+    // The new lines sit at the same column as the existing ones.
+    const column = (name: string) => (lines.find((line) => line.startsWith(`  ${name} `)) ?? "").search(/\S/, name.length + 2);
+    expect(column("anthropic")).toBe(column("openrouter"));
+    expect(column("anthropic-aws")).toBe(column("openrouter"));
+  });
+});
