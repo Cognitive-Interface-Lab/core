@@ -56,15 +56,32 @@ export class ModelRouter {
     assertRoute(route);
     const attempts: Attempt[] = [];
     let last: CoreError | undefined;
+    let skipped = 0;
 
     for (const step of route) {
       if (opts?.signal?.aborted) throw abortedError();
       const context = this.#context(step, opts?.signal);
       const started = performance.now();
       try {
-        const response = await this.#registry
-          .get(step.model.provider)
-          .chat({ ...req, model: step.model }, { signal: context.signal });
+        const provider = this.#registry.get(step.model.provider);
+
+        // Validate structured output support if requested.
+        if (req.outputSchema !== undefined && !provider.capabilities(step.model.model).structuredOutput) {
+          attempts.push({
+            model: step.model,
+            ok: false,
+            ms: 0,
+            error: new CoreError(
+              "bad_request",
+              `${formatModelRef(step.model)}: structured output is not supported`,
+              { provider: step.model.provider },
+            ).toJSON(),
+          });
+          skipped++;
+          continue;
+        }
+
+        const response = await provider.chat({ ...req, model: step.model }, { signal: context.signal });
         attempts.push({ model: step.model, ok: true, ms: elapsed(started) });
         return { ...response, attempts };
       } catch (error) {
@@ -76,6 +93,11 @@ export class ModelRouter {
         context.stopTimer();
       }
     }
+    if (skipped === route.length) {
+      throw new CoreError("bad_request", "no route supports structured output", {
+        details: { attempts },
+      });
+    }
     throw allFailed(route.length, attempts, last);
   }
 
@@ -84,6 +106,10 @@ export class ModelRouter {
     route: RouteStep[],
     opts?: ChatOptions,
   ): AsyncGenerator<StreamEvent> {
+    if (req.outputSchema !== undefined) {
+      yield { type: "error", error: new CoreError("bad_request", "outputSchema is not supported when streaming").toJSON() };
+      return;
+    }
     if (route.length === 0) {
       yield { type: "error", error: emptyRouteError().toJSON() };
       return;
