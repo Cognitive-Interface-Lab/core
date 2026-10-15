@@ -1,0 +1,26 @@
+{
+  "name": "@core/graph-sqlite",
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "exports": {
+    ".": {
+      "@core/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
+    "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@core/contracts": "workspace:*",
+    "@core/graph": "workspace:*"
+  }
+}

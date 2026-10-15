@@ -17,7 +17,7 @@ describe("isRetryableCode", () => {
     });
   }
 
-  it("covers exactly the nine documented codes", () => {
+  it("covers exactly the ten documented codes", () => {
     expect([...ErrorCodeSchema.options].sort()).toEqual(
       [
         "aborted",
@@ -29,6 +29,7 @@ describe("isRetryableCode", () => {
         "timeout",
         "unavailable",
         "unknown",
+        "conflict",
       ].sort(),
     );
   });
