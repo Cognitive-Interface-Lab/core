@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ChatRequestSchema,
+  ChatResponseSchema,
   CoreError,
+  ModelCapabilitiesSchema,
   StreamEventSchema,
   formatModelRef,
   parseModelRef,
@@ -61,6 +63,63 @@ describe("ChatRequestSchema", () => {
   it("restricts toolChoice", () => {
     expect(ChatRequestSchema.safeParse({ model, messages, toolChoice: "required" }).success).toBe(true);
     expect(ChatRequestSchema.safeParse({ model, messages, toolChoice: "always" }).success).toBe(false);
+  });
+
+  it("accepts an outputSchema JSON Schema object and keeps it", () => {
+    const outputSchema = { type: "object", properties: { n: { type: "number" } } };
+    const parsed = ChatRequestSchema.safeParse({ model, messages, outputSchema });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.outputSchema).toEqual(outputSchema);
+  });
+
+  it("rejects a non-object outputSchema", () => {
+    expect(ChatRequestSchema.safeParse({ model, messages, outputSchema: "object" }).success).toBe(false);
+    expect(ChatRequestSchema.safeParse({ model, messages, outputSchema: [{ type: "object" }] }).success).toBe(false);
+  });
+});
+
+describe("ChatResponseSchema", () => {
+  const response = {
+    model,
+    message: { role: "assistant", content: "hi" },
+    finishReason: "stop",
+    usage: {},
+  };
+
+  it("keeps a structured output exactly as given", () => {
+    const output = { n: 1, nested: { list: [1, "two", null] } };
+    const parsed = ChatResponseSchema.safeParse({ ...response, output });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.output).toEqual(output);
+  });
+
+  it("parses without output and leaves it undefined", () => {
+    const parsed = ChatResponseSchema.safeParse(response);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.output).toBeUndefined();
+  });
+});
+
+describe("ModelCapabilitiesSchema", () => {
+  const capabilities = { streaming: true, tools: true, vision: false };
+
+  it("accepts structuredOutput and keeps it", () => {
+    const parsed = ModelCapabilitiesSchema.safeParse({ ...capabilities, structuredOutput: true });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.structuredOutput).toBe(true);
+  });
+
+  it("still parses without structuredOutput", () => {
+    const parsed = ModelCapabilitiesSchema.safeParse(capabilities);
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.structuredOutput).toBeUndefined();
+  });
+
+  it("keeps streaming, tools and vision required", () => {
+    for (const key of ["streaming", "tools", "vision"] as const) {
+      const { [key]: _omitted, ...rest } = capabilities;
+      expect(ModelCapabilitiesSchema.safeParse(rest).success, key).toBe(false);
+    }
   });
 });
 
