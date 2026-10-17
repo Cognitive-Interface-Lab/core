@@ -93,7 +93,7 @@ Every milestone ends with something runnable.
 | M2f core ask for programs | `core ask --schema`, `--system-file`, `--json` and `--timeout` let a program get a checked JSON answer and a machine-readable result |
 | M2g core ask output-token limit | `core ask --max-output-tokens` gives a model room to finish, and an answer cut off at the limit is reported as such |
 | M3 Process graph and event log | A branched conversation is stored and replayed from its events |
-| M4 Server, auth and clients | The same over HTTP, from the generated TypeScript and Python clients |
+| M4 Server, local bridge and TypeScript client | `core serve` answers websites you paired and programs on this machine over HTTP, and the same handler mounts inside a Next.js app |
 | M5 Trilix on core | Trilix's web app runs its chats through the backbone |
 | M6 Orbit on core | Orbit's brief, voice and phone run on the backbone |
 
