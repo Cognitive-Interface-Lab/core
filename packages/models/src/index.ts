@@ -7,4 +7,5 @@ export * from "./providers/preset-registry.js";
 export * from "./providers/openai-compatible.js";
 export * from "./providers/anthropic.js";
 export * from "./router.js";
+export * from "./ask-result.js";
 export { outputSchemaFrom, parseStructuredOutput } from "./structured.js";
