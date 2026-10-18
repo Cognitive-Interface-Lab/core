@@ -12,7 +12,7 @@ export const TurnBudgetSchema = z.object({
 });
 export type TurnBudget = z.infer<typeof TurnBudgetSchema>;
 
-export const TurnFinishReasonSchema = z.enum(["stop", "max-rounds", "budget", "error", "aborted"]);
+export const TurnFinishReasonSchema = z.enum(["stop", "max-rounds", "budget", "error", "aborted", "client-tools"]);
 export type TurnFinishReason = z.infer<typeof TurnFinishReasonSchema>;
 
 /**
