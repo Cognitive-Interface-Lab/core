@@ -10,6 +10,7 @@ import {
 import { Hono, type Context } from "hono";
 import { errorResponse, HttpError, readBody, type BodySchema } from "./errors.js";
 import { chat } from "./routes/chat.js";
+import { graphs } from "./routes/graphs.js";
 import { meta } from "./routes/meta.js";
 import { turns } from "./routes/turns.js";
 
@@ -108,7 +109,7 @@ export type RouteModule = {
 };
 
 /** Every route module, in registration order. Later slices append here. */
-const MODULES: RouteModule[] = [meta, chat, turns];
+const MODULES: RouteModule[] = [meta, chat, turns, graphs];
 
 /** Every route module's specs, in registration order. */
 export function routeSpecs(): RouteSpec[] {
