@@ -10,6 +10,7 @@ import { configCommand } from "./commands/config.js";
 import { loginCommand } from "./commands/login.js";
 import { modelsCommand } from "./commands/models.js";
 import { serveCommand } from "./commands/serve.js";
+import { unpairCommand } from "./commands/unpair.js";
 import { completeRoute } from "./completion/route.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
@@ -81,6 +82,9 @@ export const commands: Record<string, Command> = {
   },
   get serve() {
     return serveCommand;
+  },
+  get unpair() {
+    return unpairCommand;
   },
 };
 
