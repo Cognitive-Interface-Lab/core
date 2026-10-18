@@ -73,10 +73,11 @@ export function get(path: string, init?: RequestOptions): Request {
 }
 
 /** A POST request with a JSON body and `content-type: application/json`, plus the auth header by default. */
-export function post(path: string, body: unknown, init?: RequestOptions): Request {
-  const request = build("POST", path, JSON.stringify(body), init);
-  if (!request.headers.has("content-type")) request.headers.set("content-type", "application/json");
-  return request;
+export function post(path: string, body: unknown, init: RequestOptions = {}): Request {
+  // Set before the Request is built: a string body would otherwise default to text/plain.
+  const headers = new Headers(init.headers);
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  return build("POST", path, JSON.stringify(body), { ...init, headers });
 }
 
 /** A DELETE request with the auth header (unless `init.auth` is false). */
