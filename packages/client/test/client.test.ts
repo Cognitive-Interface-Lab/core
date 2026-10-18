@@ -752,6 +752,7 @@ describe("leaving a turn early", () => {
     })();
     const error = await failure(run);
     expect(error.code).toBe("aborted");
+    expect(error.message).toBe("the request was aborted");
     expect(seen).toEqual([{ type: "round", round: 1 }]);
   });
 
