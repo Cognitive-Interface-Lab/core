@@ -4,13 +4,14 @@ import {
   cloudflareRefresher,
 } from "@core/credentials";
 import {
-  AnthropicProvider,
   EnvCredentialStore,
   MockProvider,
   ModelRouter,
   OpenAICompatibleProvider,
   PRESETS,
   ProviderRegistry,
+  createPresetRegistry,
+  presetProvider,
   type CredentialStore,
   type ModelProvider,
 } from "@core/models";
@@ -38,10 +39,11 @@ export async function openGateway(io: Io, config: Config): Promise<Gateway> {
   });
   const credentials = new ChainCredentialStore([new EnvCredentialStore(io.env), store]);
 
-  const registry = new ProviderRegistry();
-  registry.register(new MockProvider({ id: "mock" }));
   const providers = Object.keys(PRESETS).sort();
-  for (const id of providers) registry.register(makeProvider(id, credentials, io));
+  const registry = createPresetRegistry(credentials, {
+    fetch: io.fetch,
+    providers: [new MockProvider({ id: "mock" })],
+  });
 
   const router = new ModelRouter(
     registry,
@@ -59,14 +61,9 @@ export function makeProvider(
   credentials: CredentialStore,
   io: Io,
 ): ModelProvider & Required<Pick<ModelProvider, "listModels">> {
-  const preset = PRESETS[id];
-  const opts = {
-    id,
-    credentials,
-    ...(preset ? { preset } : {}),
-    fetch: io.fetch,
-  };
-  return preset?.api === "anthropic" ? new AnthropicProvider(opts) : new OpenAICompatibleProvider(opts);
+  // Ids outside the presets keep the OpenAI-compatible fallback.
+  if (!Object.hasOwn(PRESETS, id)) return new OpenAICompatibleProvider({ id, credentials, fetch: io.fetch });
+  return presetProvider(id, credentials, { fetch: io.fetch });
 }
 
 /**

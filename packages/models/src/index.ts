@@ -3,6 +3,7 @@ export * from "./registry.js";
 export * from "./credentials.js";
 export * from "./providers/mock.js";
 export * from "./providers/presets.js";
+export * from "./providers/preset-registry.js";
 export * from "./providers/openai-compatible.js";
 export * from "./providers/anthropic.js";
 export * from "./router.js";
