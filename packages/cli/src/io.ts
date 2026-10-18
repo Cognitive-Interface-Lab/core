@@ -34,7 +34,9 @@ export function createNodeIo(): Io {
     return piped.lines;
   };
 
-  async function line(question: string): Promise<string | undefined> {
+  async function line(question: string, opts: { signal?: AbortSignal } = {}): Promise<string | undefined> {
+    const { signal } = opts;
+    if (signal?.aborted) return undefined;
     stderr.write(question);
     if (!interactive) {
       const next = await pipedLines().next();
@@ -42,6 +44,12 @@ export function createNodeIo(): Io {
       return next.done ? undefined : next.value;
     }
     const rl = createInterface({ input: process.stdin, output: stderr, terminal: true });
+    // An aborted question closes its readline, so it can never take an answer meant for another.
+    const abort = (): void => {
+      stderr.write("\n");
+      rl.close();
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     try {
       return await new Promise<string | undefined>((resolve) => {
         rl.once("close", () => resolve(undefined));
@@ -50,6 +58,7 @@ export function createNodeIo(): Io {
         rl.question("", (answer) => resolve(answer));
       });
     } finally {
+      signal?.removeEventListener("abort", abort);
       rl.close();
     }
   }

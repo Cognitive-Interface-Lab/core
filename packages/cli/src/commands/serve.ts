@@ -60,15 +60,21 @@ async function readLocalToken(path: string): Promise<string> {
 
 /** Asks at the terminal whether the page may pair. Without a terminal nobody can answer, so it refuses. */
 function approverFor(io: Io): PairApprover {
-  return async ({ origin, code, name }) => {
+  return async ({ origin, code, name }, signal) => {
     if (!io.interactive) {
       io.stderr.write("pairing needs core serve running in a terminal\n");
       return false;
     }
-    // prompt.line writes the question to stderr itself.
+    // prompt.line writes the question to stderr itself. The bridge's signal ends the question with
+    // its pairing, so a stale question never answers for the next site.
     const answer = await io.prompt.line(
       `${origin} asks to use core on this machine${name !== undefined ? ` as "${name}"` : ""}. Check that it shows the code ${code}. Allow? [y/N] `,
+      { signal },
     );
+    if (signal.aborted) {
+      io.stderr.write(`pairing request from ${origin} ended\n`);
+      return false;
+    }
     return answer !== undefined && ["y", "yes"].includes(answer.trim().toLowerCase());
   };
 }

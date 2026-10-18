@@ -22,8 +22,8 @@ export type Io = {
   interactive: boolean;
   configDir: string;
   prompt: {
-    /** `undefined` = end of input or Ctrl+C. */
-    line(question: string): Promise<string | undefined>;
+    /** `undefined` = end of input, Ctrl+C, or `signal` aborted (a TTY question then closes at once). */
+    line(question: string, opts?: { signal?: AbortSignal }): Promise<string | undefined>;
     /** Never echoes in a TTY; reads one line from piped stdin. */
     secret(question: string): Promise<string | undefined>;
     /** A numbered list; the answer is 0-based. */
