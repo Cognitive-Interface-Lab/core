@@ -216,10 +216,13 @@ describe("readBody", () => {
     expect(status).toBe(415);
   });
 
-  it("answers 413 bad_request for a body over maxBodyBytes", async () => {
-    const { status, body } = await failure(json(JSON.stringify(valid)), 10);
+  it("answers 413 bad_request for a declared content-length over maxBodyBytes, without reading the body", async () => {
+    const request = json("{}", { "content-length": "11" });
+    expect(request.headers.get("content-length")).toBe("11");
+    const { status, body } = await failure(request, 10);
     expect(status).toBe(413);
     expect(body.error.code).toBe("bad_request");
+    expect(request.bodyUsed).toBe(false);
   });
 
   it("answers 413 for a streamed body without content-length that passes the limit", async () => {
