@@ -516,9 +516,13 @@ describe("ServeTokens", () => {
     await secrets.set(nameFor(APP_A), "garbage");
     // Well-formed JSON of the wrong shape (no hash), under another valid name.
     await secrets.set(nameFor("https://app-c.example"), JSON.stringify({ origin: APP_A }));
+    await secrets.set(nameFor("https://app-d.example"), "{not json");
+    await secrets.set(nameFor("https://app-e.example"), JSON.stringify({ origin: 1, hash: "00" }));
 
     expect(await tokens.origins()).toEqual([APP_B]);
     expect(await tokens.verify(APP_A, "anything")).toBe(false);
+    expect(await tokens.verify("https://app-d.example", "anything")).toBe(false);
+    expect(await tokens.verify("https://app-e.example", "anything")).toBe(false);
     expect(await tokens.verify(APP_B, tokenB)).toBe(true);
   });
 });
