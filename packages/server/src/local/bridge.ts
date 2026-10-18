@@ -15,7 +15,11 @@ export type PairApprover = (
   signal: AbortSignal,
 ) => Promise<boolean>;
 
-type Outcome = { kind: "answered"; approved: boolean } | { kind: "failed" } | { kind: "timeout" };
+type Outcome =
+  | { kind: "answered"; approved: boolean }
+  | { kind: "failed" }
+  | { kind: "timeout" }
+  | { kind: "aborted" };
 
 const CORS_METHODS = "GET, POST, DELETE";
 const CORS_HEADERS = "authorization, content-type";
@@ -64,10 +68,21 @@ export function localBridge(opts: {
     const body = await readBody(request, PairRequestSchema);
     if (pending) return errorResponse(new HttpError("rate_limit", "a pairing is already pending", 429));
     if (cooling(origin)) return errorResponse(new HttpError("rate_limit", "try again later", 429));
+    // A page that posts and navigates away aborts while its body is read: its listener would never
+    // fire, so it must not prompt the user or hold the slot.
+    if (request.signal.aborted) return errorResponse(new HttpError("aborted", "pairing aborted", 499));
 
     pending = true;
     const controller = new AbortController();
-    const abort = (): void => controller.abort();
+    let disconnect: () => void = () => {};
+    // A disconnect ends the pairing at once, even when the approver ignores its signal.
+    const disconnected = new Promise<Outcome>((resolve) => {
+      disconnect = () => resolve({ kind: "aborted" });
+    });
+    const abort = (): void => {
+      controller.abort();
+      disconnect();
+    };
     request.signal.addEventListener("abort", abort);
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -88,8 +103,9 @@ export function localBridge(opts: {
           (approved): Outcome => ({ kind: "answered", approved }),
           (): Outcome => ({ kind: "failed" }),
         );
-      const outcome = await Promise.race([approval, timeout]);
+      const outcome = await Promise.race([approval, timeout, disconnected]);
 
+      if (outcome.kind === "aborted") return errorResponse(new HttpError("aborted", "pairing aborted", 499));
       if (outcome.kind === "timeout") return errorResponse(new HttpError("timeout", "pairing timed out", 504));
       if (outcome.kind === "failed") return errorResponse(new HttpError("unknown", "pairing failed", 500));
       if (outcome.approved !== true) {
@@ -144,7 +160,8 @@ export function localBridge(opts: {
 
       if (request.method === "POST" && path === "/v1/pair") {
         if (!pairable) return errorResponse(new HttpError("auth", "origin may not pair", 403));
-        return withCors(await pair(request, origin), origin);
+        // Body errors (400, 413, 415) carry CORS too, so the page can read why.
+        return withCors(await pair(request, origin).catch((error: unknown) => errorResponse(error)), origin);
       }
 
       if (request.method === "DELETE" && path === "/v1/pair") {
