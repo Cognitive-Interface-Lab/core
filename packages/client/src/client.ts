@@ -116,12 +116,22 @@ export function createCoreClient(opts: {
     return parseAs(schema, body);
   };
 
-  /** A server-sent turn. The request is sent when iteration starts, and errors throw then. */
+  /**
+   * A server-sent turn. The request is sent when iteration starts, and errors throw then. A stream
+   * that fails partway throws a `CoreError` too: `aborted` when the caller aborted, else
+   * `unavailable`. Bad data is already a `CoreError` and passes through unchanged.
+   */
   async function* stream(call: Sent): AsyncGenerator<TurnEvent> {
     const response = await send(call);
     if (!response.ok) throw failure(await readJson(response, call.signal));
     if (response.body === null) throw unexpected();
-    yield* parseTurnStream(response.body);
+    try {
+      yield* parseTurnStream(response.body);
+    } catch (cause) {
+      if (CoreError.is(cause)) throw cause;
+      if (call.signal?.aborted === true) throw new CoreError("aborted", "the request was aborted", { cause });
+      throw new CoreError("unavailable", `core stopped answering at ${opts.baseUrl}`, { cause });
+    }
   }
 
   /** A graph write: the ids it made and the state of the graph written to. */
