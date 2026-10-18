@@ -100,7 +100,7 @@ function operation(
       content: { "application/json": { schema: schemaRef(spec.body, schemas, `the body of ${where}`) } },
     };
   }
-  out.responses = { ...answers(spec, schemas), ...errors(schemas) };
+  out.responses = { ...answers(spec, schemas), ...errors(spec, schemas) };
   return out;
 }
 
@@ -121,17 +121,34 @@ function answers(spec: RouteSpec, schemas: Record<string, unknown>): Record<stri
   return { "200": { description: "The answer.", content: { "application/json": { schema } } } };
 }
 
-/** The errors every route can answer with, each an `ApiErrorBody`. */
-function errors(schemas: Record<string, unknown>): Record<string, unknown> {
-  const errorBody = (description: string): Record<string, unknown> => ({
-    description,
-    content: { "application/json": { schema: schemaRef("ApiErrorBody", schemas, "the error responses") } },
-  });
+/** The `answer` of a model call that answers a failure with its own body (`POST /v1/chat`). */
+const ASK_RESULT_ANSWER = "AskResult";
+
+/**
+ * The errors every route can answer with, each an `ApiErrorBody`, plus `default` for any other
+ * error status. A route answering `AskResult` answers a failed model call with that `AskResult`,
+ * so its 400, 404, 500 and `default` take either body; its 401 is still an `ApiErrorBody`.
+ */
+function errors(spec: RouteSpec, schemas: Record<string, unknown>): Record<string, unknown> {
+  const errorBody = schemaRef("ApiErrorBody", schemas, "the error responses");
+  const askResult = spec.answer === ASK_RESULT_ANSWER;
+  const failure = (description: string): Record<string, unknown> =>
+    askResult
+      ? {
+          description: `${description} A failed model call answers its AskResult, which lists the attempts.`,
+          content: {
+            "application/json": {
+              schema: { oneOf: [schemaRef(ASK_RESULT_ANSWER, schemas, "the error responses"), errorBody] },
+            },
+          },
+        }
+      : { description, content: { "application/json": { schema: errorBody } } };
   return {
-    "400": errorBody("The request is not valid."),
-    "401": errorBody("Authentication is required."),
-    "404": errorBody("Not found."),
-    "500": errorBody("Internal error."),
+    "400": failure("The request is not valid."),
+    "401": { description: "Authentication is required.", content: { "application/json": { schema: errorBody } } },
+    "404": failure("Not found."),
+    "500": failure("Internal error."),
+    default: failure("Any other error status (405, 409, 413, 415, 422, 429, 499, 503, 504)."),
   };
 }
 
