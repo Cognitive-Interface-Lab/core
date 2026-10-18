@@ -133,7 +133,7 @@ describe("openApiDocument", () => {
     }
   });
 
-  it("answers an AskResult operation's 400, 404, 500 and default with oneOf AskResult | ApiErrorBody, and its 401 with ApiErrorBody", () => {
+  it("answers an AskResult operation's 400, 401, 404, 500 and default with oneOf AskResult | ApiErrorBody", () => {
     const doc = document();
     const askSpecs = routeSpecs().filter((s) => s.answer === "AskResult");
     expect(askSpecs.length, "at least one AskResult operation").toBeGreaterThan(0);
@@ -142,17 +142,13 @@ describe("openApiDocument", () => {
         string,
         { description?: string; content?: Record<string, { schema: Json }> }
       >;
-      for (const status of ["400", "404", "500", "default"]) {
+      for (const status of ["400", "401", "404", "500", "default"]) {
         const label = `${spec.method} ${spec.path} ${status}`;
         expect(responses[status]?.content?.["application/json"]?.schema, label).toEqual({
           oneOf: [{ $ref: `${REF_PREFIX}AskResult` }, { $ref: `${REF_PREFIX}ApiErrorBody` }],
         });
         expect(responses[status]?.description, `${label} description`).toContain("AskResult");
       }
-      expect(
-        responses["401"]?.content?.["application/json"]?.schema,
-        `${spec.method} ${spec.path} 401`,
-      ).toEqual({ $ref: `${REF_PREFIX}ApiErrorBody` });
     }
   });
 
