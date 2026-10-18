@@ -62,6 +62,7 @@ interface CallOptions {
   token?: string;
   body?: unknown;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 /** A request with an explicit Host header (a bare `new Request(url)` in Node carries none). */
@@ -75,7 +76,12 @@ function call(method: string, path: string, options: CallOptions = {}): Request 
     body = JSON.stringify(options.body);
     headers.set("content-type", "application/json");
   }
-  return new Request(`${BASE_URL}${path}`, { method, headers, ...(body === undefined ? {} : { body }) });
+  return new Request(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+  });
 }
 
 function preflight(path: string, origin: string, extra: Record<string, string> = {}): Request {
@@ -266,6 +272,76 @@ describe("pairing", () => {
     expect(await s.tokens.origins()).toEqual([]);
   });
 
+  it("a disconnect while the approver waits answers 499 aborted, aborts its signal and frees the slot at once, even when the approver ignores the signal", async () => {
+    let signal: AbortSignal | undefined;
+    let started: () => void = () => {};
+    const approverCalled = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const approve: PairApprover = (request, abortSignal) => {
+      if (request.origin === APP_A) {
+        signal = abortSignal;
+        started();
+        return new Promise<boolean>(() => {});
+      }
+      return Promise.resolve(true);
+    };
+    const s = setup({ approve });
+
+    const controller = new AbortController();
+    const pending = s.fetch(call("POST", "/v1/pair", { origin: APP_A, body: { code: CODE }, signal: controller.signal }));
+    await approverCalled;
+    expect(signal?.aborted).toBe(false);
+
+    controller.abort();
+    const response = await pending;
+    expect(response.status).toBe(499);
+    expect(await errorCode(response)).toBe("aborted");
+    expect(signal?.aborted).toBe(true);
+    expect(await s.tokens.origins()).toEqual([]);
+
+    // No timers advanced: the pending slot is already free for the next pairing.
+    const next = await s.fetch(call("POST", "/v1/pair", { origin: APP_B, body: { code: CODE } }));
+    expect(next.status).toBe(200);
+    expect((await readJson<{ origin: string }>(next)).origin).toBe(APP_B);
+  });
+
+  it("an already-aborted request does not call the approver", async () => {
+    const approve = vi.fn<PairApprover>(async () => true);
+    const s = setup({ approve });
+
+    const response = await s.fetch(call("POST", "/v1/pair", { origin: APP_A, body: { code: CODE }, signal: AbortSignal.abort() }));
+    expect(response.status).toBe(499);
+    expect(await errorCode(response)).toBe("aborted");
+    expect(approve).not.toHaveBeenCalled();
+    expect(await s.tokens.origins()).toEqual([]);
+
+    // The aborted request holds no slot.
+    const next = await s.fetch(call("POST", "/v1/pair", { origin: APP_B, body: { code: CODE } }));
+    expect(next.status).toBe(200);
+    expect(approve).toHaveBeenCalledTimes(1);
+  });
+
+  it("a malformed pairing body answers 400 with CORS", async () => {
+    const approve = vi.fn<PairApprover>(async () => true);
+    const s = setup({ approve });
+
+    const invalidJson = await s.fetch(
+      new Request(`${BASE_URL}/v1/pair`, {
+        method: "POST",
+        headers: { host: `127.0.0.1:${PORT}`, origin: APP_A, "content-type": "application/json" },
+        body: "{not json",
+      }),
+    );
+    expect(invalidJson.status).toBe(400);
+    expect(invalidJson.headers.get("access-control-allow-origin")).toBe(APP_A);
+
+    const badCode = await s.fetch(call("POST", "/v1/pair", { origin: APP_A, body: { code: "bad" } }));
+    expect(badCode.status).toBe(400);
+    expect(badCode.headers.get("access-control-allow-origin")).toBe(APP_A);
+    expect(approve).not.toHaveBeenCalled();
+  });
+
   it("rejects a malformed pairing code with 400", async () => {
     const approve = vi.fn<PairApprover>(async () => true);
     const s = setup({ approve });
@@ -310,22 +386,22 @@ describe("principals", () => {
 });
 
 describe("forgetting", () => {
-  it("DELETE /v1/pair forgets the token and the next request with it is 401", async () => {
+  it("DELETE /v1/pair forgets the token; the next request with it is 403 without CORS", async () => {
     const s = setup();
     const token = await pair(s, APP_A);
 
     const forgotten = await s.fetch(call("DELETE", "/v1/pair", { origin: APP_A, token }));
     expect(forgotten.status).toBe(204);
+    // The origin is unpaired again, so its other requests are refused outright.
+    const other = await s.fetch(call("GET", "/v1/providers", { origin: APP_A, token }));
+    expect(other.status).toBe(403);
+    expect(other.headers.get("access-control-allow-origin")).toBeNull();
     expect(await s.tokens.origins()).toEqual([]);
 
     const again = await s.fetch(call("DELETE", "/v1/pair", { origin: APP_A, token }));
     expect(again.status).toBe(401);
     const withoutOrigin = await s.fetch(call("GET", "/v1/providers", { token }));
     expect(withoutOrigin.status).toBe(401);
-    // The origin is unpaired again, so its other requests are refused outright.
-    const other = await s.fetch(call("GET", "/v1/providers", { origin: APP_A, token }));
-    expect(other.status).toBe(403);
-    expect(other.headers.get("access-control-allow-origin")).toBeNull();
   });
 
   it("DELETE /v1/pair without a valid token answers 401 and keeps the pairing", async () => {
