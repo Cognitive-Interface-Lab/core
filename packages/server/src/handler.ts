@@ -1,9 +1,17 @@
 import { CoreError, type ModelRef, type Principal } from "@core/contracts";
 import type { GraphStore } from "@core/graph";
-import { createPresetRegistry, type CredentialStore, type ProviderRegistry } from "@core/models";
+import {
+  createPresetRegistry,
+  ModelRouter,
+  type CredentialStore,
+  type ProviderRegistry,
+  type RouteStep,
+} from "@core/models";
 import { Hono, type Context } from "hono";
 import { errorResponse, HttpError, readBody, type BodySchema } from "./errors.js";
+import { chat } from "./routes/chat.js";
 import { meta } from "./routes/meta.js";
+import { turns } from "./routes/turns.js";
 
 /** One route as the API describes it, for the OpenAPI document and for the 405 check. */
 export type RouteSpec = {
@@ -83,6 +91,14 @@ export type RouteDeps = {
   registry(c: Context<CoreEnv>): Promise<ProviderRegistry>;
   /** readBody with options.maxBodyBytes. */
   body<T>(c: Context<CoreEnv>, schema: BodySchema<T>): Promise<T>;
+  /**
+   * The router for this request and the route of a call: `call.route`, else `defaultRoute` of the
+   * principal. Each step carries `call.timeoutMs` when given. 400 when neither names a route.
+   */
+  model(
+    c: Context<CoreEnv>,
+    call: { route?: ModelRef[]; timeoutMs?: number },
+  ): Promise<{ router: ModelRouter; route: RouteStep[] }>;
 };
 
 /** A group of routes. Internal: each module adds its routes in `register`, and its specs to `routeSpecs`. */
@@ -92,7 +108,7 @@ export type RouteModule = {
 };
 
 /** Every route module, in registration order. Later slices append here. */
-const MODULES: RouteModule[] = [meta];
+const MODULES: RouteModule[] = [meta, chat, turns];
 
 /** Every route module's specs, in registration order. */
 export function routeSpecs(): RouteSpec[] {
@@ -143,12 +159,28 @@ export function createCoreHandler(options: CoreHandlerOptions): CoreHandler {
     return value;
   };
 
+  const model: RouteDeps["model"] = async (c, call) => {
+    const router = new ModelRouter(await registry(c), {
+      ...(options.defaultTimeoutMs !== undefined && { defaultTimeoutMs: options.defaultTimeoutMs }),
+    });
+    const defaultRoute =
+      typeof options.defaultRoute === "function" ? options.defaultRoute(principal(c)) : options.defaultRoute;
+    const refs = call.route ?? defaultRoute;
+    if (refs === undefined || refs.length === 0) throw new CoreError("bad_request", "no route");
+    const route: RouteStep[] = refs.map((ref) => ({
+      model: ref,
+      ...(call.timeoutMs !== undefined && { timeoutMs: call.timeoutMs }),
+    }));
+    return { router, route };
+  };
+
   const deps: RouteDeps = {
     options,
     principal,
     credentials,
     registry,
     body: (c, schema) => readBody(c.req.raw, schema, options.maxBodyBytes),
+    model,
   };
 
   // Outside the base path, and on unknown paths, nothing is registered: answer 404, or 405 for a known path.
