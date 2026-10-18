@@ -3,7 +3,6 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { CoreError } from "@core/contracts";
-import { SqliteGraphStore } from "@core/graph-sqlite";
 import { createPresetRegistry, MockProvider } from "@core/models";
 import { createCoreHandler, localBridge, ServeTokens, type PairApprover } from "@core/server";
 import { loadConfig, resolveRoute } from "../config.js";
@@ -100,6 +99,9 @@ usage error (exit 2).`,
     const configured = Boolean(io.env["CORE_ROUTE"]) || config.route !== undefined;
     const defaultRoute = configured ? resolveRoute(undefined, io.env, config) : undefined;
 
+    // Loaded here, not at the top: node:sqlite warns that it is experimental as soon as it loads,
+    // and every other command would print that warning.
+    const { SqliteGraphStore } = await import("@core/graph-sqlite");
     const graphStore = SqliteGraphStore.open(join(io.configDir, GRAPHS_FILE));
     let unsubscribe: () => void = () => {};
     const interrupted = new Promise<void>((resolve) => {
