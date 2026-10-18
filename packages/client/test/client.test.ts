@@ -697,7 +697,14 @@ describe("leaving a turn early", () => {
       );
       return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
     };
-    return { state, fake, push: (text: string) => controller?.enqueue(encoder.encode(text)) };
+    const push = (text: string): void => {
+      try {
+        controller?.enqueue(encoder.encode(text));
+      } catch {
+        // the body is already errored: nothing more arrives
+      }
+    };
+    return { state, fake, push };
   }
 
   it("cancels the body when the loop is left after one event", async () => {
@@ -730,25 +737,84 @@ describe("leaving a turn early", () => {
     expect(state.cancelled).toBe(true);
   });
 
-  it("ends the iteration, with no further events, when the signal is aborted", async () => {
+  it("ends the iteration with CoreError aborted, and no further events, when the signal is aborted", async () => {
     const { fake, push } = openStream();
     const client = createCoreClient({ baseUrl: "https://core.example", fetch: fake });
     const controller = new AbortController();
     const seen: TurnEvent[] = [];
     const run = (async () => {
-      try {
-        for await (const event of client.turn({ messages: [USER] }, { signal: controller.signal })) {
-          seen.push(event);
-          controller.abort();
-          // An event the core sends after the abort must not reach the loop.
-          push(`event: turn\ndata: ${JSON.stringify({ type: "round", round: 2 })}\n\n`);
-        }
-      } catch {
-        // Ending with an error is as good as ending quietly.
+      for await (const event of client.turn({ messages: [USER] }, { signal: controller.signal })) {
+        seen.push(event);
+        controller.abort();
+        // An event the core sends after the abort must not reach the loop.
+        push(`event: turn\ndata: ${JSON.stringify({ type: "round", round: 2 })}\n\n`);
       }
     })();
-    await within(run);
+    const error = await failure(run);
+    expect(error.code).toBe("aborted");
     expect(seen).toEqual([{ type: "round", round: 1 }]);
+  });
+
+  /** A fake fetch whose body emits `frames` and then errors, with no abort. */
+  function breakingFetch(frames: string[], reason: unknown): typeof fetch {
+    return async () => {
+      const queue = [...frames];
+      const body = new ReadableStream<Uint8Array>({
+        // Erroring in `start` would drop the queued frames, so the error comes on a later pull.
+        pull(controller) {
+          const frame = queue.shift();
+          if (frame === undefined) controller.error(reason);
+          else controller.enqueue(encoder.encode(frame));
+        },
+      });
+      return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+    };
+  }
+
+  it("throws CoreError unavailable naming the baseUrl after the events seen, when the body errors partway", async () => {
+    const baseUrl = "https://core.example";
+    const client = createCoreClient({ baseUrl, fetch: breakingFetch([first], new TypeError("terminated")) });
+    const runs = {
+      turn: () => client.turn({ messages: [USER] }),
+      "graphs.turn": () => client.graphs.turn("g", { branchId: "b" }),
+    };
+    for (const [name, start] of Object.entries(runs)) {
+      const seen: TurnEvent[] = [];
+      const error = await failure(
+        (async () => {
+          for await (const event of start()) seen.push(event);
+        })(),
+      );
+      expect(seen, name).toEqual([{ type: "round", round: 1 }]);
+      expect(error.code, name).toBe("unavailable");
+      expect(error.message, name).toContain(baseUrl);
+    }
+  });
+
+  it("passes bad data mid-stream through as unknown, not unavailable", async () => {
+    const bad = `event: turn\ndata: ${JSON.stringify({ type: "nope" })}\n\n`;
+    const client = createCoreClient({
+      baseUrl: "https://core.example",
+      fetch: async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(encoder.encode(first + bad));
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "content-type": "text/event-stream" } },
+        ),
+    });
+    const seen: TurnEvent[] = [];
+    const error = await failure(
+      (async () => {
+        for await (const event of client.turn({ messages: [USER] })) seen.push(event);
+      })(),
+    );
+    expect(seen).toEqual([{ type: "round", round: 1 }]);
+    expect(error.code).toBe("unknown");
+    expect(error.message).toBe("unexpected answer from core");
   });
 });
 
