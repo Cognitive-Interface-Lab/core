@@ -17,8 +17,10 @@
   "dependencies": {
     "@core/contracts": "workspace:*",
     "@core/credentials": "workspace:*",
+    "@core/graph-sqlite": "workspace:*",
     "@core/models": "workspace:*",
     "@core/runtime": "workspace:*",
+    "@core/server": "workspace:*",
     "@core/tools": "workspace:*",
     "zod": "^4.0.0"
   }

@@ -4,6 +4,7 @@ import { posix, win32 } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import { CoreError } from "@core/contracts";
 import { openSecretStore, type SecretStore } from "@core/credentials";
+import { serveLocal } from "@core/server/node";
 import type { Io } from "./run.js";
 
 type Env = Record<string, string | undefined>;
@@ -145,6 +146,7 @@ export function createNodeIo(): Io {
         if (handlers.length === 0) process.off("SIGINT", onSigint);
       };
     },
+    serve: (handler, port) => serveLocal({ handler, port }),
   };
 }
 

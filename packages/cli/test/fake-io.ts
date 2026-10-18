@@ -112,6 +112,11 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
           if (index >= 0) handlers.splice(index, 1);
         };
       }),
+    serve:
+      overrides.serve ??
+      (async () => {
+        throw new Error("fakeIo: serve is not faked");
+      }),
   };
 
   return {

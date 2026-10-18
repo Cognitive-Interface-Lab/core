@@ -254,12 +254,18 @@ importers:
       '@core/credentials':
         specifier: workspace:*
         version: link:../credentials
+      '@core/graph-sqlite':
+        specifier: workspace:*
+        version: link:../graph-sqlite
       '@core/models':
         specifier: workspace:*
         version: link:../models
       '@core/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@core/server':
+        specifier: workspace:*
+        version: link:../server
       '@core/tools':
         specifier: workspace:*
         version: link:../tools
