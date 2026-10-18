@@ -353,6 +353,27 @@ importers:
         specifier: workspace:*
         version: link:../tools
 
+  packages/server:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@core/tools':
+        specifier: workspace:*
+        version: link:../tools
+      hono:
+        specifier: ^4.13.12
+        version: 4.13.13
+
   packages/tools:
     dependencies:
       '@core/contracts':
