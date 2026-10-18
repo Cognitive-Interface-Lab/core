@@ -11,16 +11,34 @@ const APP_A = "https://app-a.example";
 const APP_B = "https://app-b.example";
 const CODE = "ABC234";
 
-/** A Map-backed `TokenSecrets`; the map is exposed so tests can look at what is stored. */
+/** Mirror of the name rule every real `SecretStore` enforces (`assertSecretName` in `@core/credentials`). */
+const SECRET_NAME = /^[a-z][a-z0-9-]{0,63}$/;
+
+function assertName(name: string): void {
+  if (!SECRET_NAME.test(name)) throw new Error(`invalid secret name "${name}"`);
+}
+
+/**
+ * A Map-backed `TokenSecrets`; the map is exposed so tests can look at what is stored. Like every
+ * real `SecretStore`, `get`, `set` and `delete` refuse an invalid name, so the suite proves
+ * `ServeTokens` only writes valid ones.
+ */
 function memorySecrets(): TokenSecrets & { store: Map<string, string> } {
   const store = new Map<string, string>();
   return {
     store,
-    get: async (name) => store.get(name),
+    get: async (name) => {
+      assertName(name);
+      return store.get(name);
+    },
     set: async (name, value) => {
+      assertName(name);
       store.set(name, value);
     },
-    delete: async (name) => store.delete(name),
+    delete: async (name) => {
+      assertName(name);
+      return store.delete(name);
+    },
     list: async () => [...store.keys()],
   };
 }
@@ -483,5 +501,24 @@ describe("ServeTokens", () => {
     expect(await tokens.forget("https://b.example")).toBe(true);
     expect(await tokens.forget("https://b.example")).toBe(false);
     expect(await tokens.origins()).toEqual(["https://a.example", "https://c.example"]);
+  });
+
+  it("skips a value that is not its JSON in origins() and fails verify for it", async () => {
+    const secrets = memorySecrets();
+    const tokens = new ServeTokens(secrets);
+    const tokenB = await tokens.issue(APP_B);
+
+    const nameFor = (origin: string): string =>
+      `serve-token-${createHash("sha256").update(origin).digest("hex").slice(0, 32)}`;
+    expect([...secrets.store.keys()]).toEqual([nameFor(APP_B)]);
+    expect(nameFor(APP_B)).toMatch(/^serve-token-[0-9a-f]{32}$/);
+
+    await secrets.set(nameFor(APP_A), "garbage");
+    // Well-formed JSON of the wrong shape (no hash), under another valid name.
+    await secrets.set(nameFor("https://app-c.example"), JSON.stringify({ origin: APP_A }));
+
+    expect(await tokens.origins()).toEqual([APP_B]);
+    expect(await tokens.verify(APP_A, "anything")).toBe(false);
+    expect(await tokens.verify(APP_B, tokenB)).toBe(true);
   });
 });
