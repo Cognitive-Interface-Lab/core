@@ -117,16 +117,57 @@ describe("openApiDocument", () => {
     }
   });
 
-  it("lists 400, 401, 404 and 500 as ApiErrorBody on every operation", () => {
+  it("lists 400, 401, 404, 500 and default as application/json on every operation", () => {
     const doc = document();
     for (const spec of routeSpecs()) {
       const responses = operationOf(doc, spec.method, spec.path).responses as Record<
         string,
-        { content: Record<string, { schema: Json }> }
+        { content?: Record<string, { schema: Json }> }
       >;
-      for (const status of ["400", "401", "404", "500"]) {
+      for (const status of ["400", "401", "404", "500", "default"]) {
         expect(
-          responses[status]?.content["application/json"]?.schema,
+          responses[status]?.content?.["application/json"]?.schema,
+          `${spec.method} ${spec.path} ${status}`,
+        ).toBeDefined();
+      }
+    }
+  });
+
+  it("answers an AskResult operation's 400, 404, 500 and default with oneOf AskResult | ApiErrorBody, and its 401 with ApiErrorBody", () => {
+    const doc = document();
+    const askSpecs = routeSpecs().filter((s) => s.answer === "AskResult");
+    expect(askSpecs.length, "at least one AskResult operation").toBeGreaterThan(0);
+    for (const spec of askSpecs) {
+      const responses = operationOf(doc, spec.method, spec.path).responses as Record<
+        string,
+        { description?: string; content?: Record<string, { schema: Json }> }
+      >;
+      for (const status of ["400", "404", "500", "default"]) {
+        const label = `${spec.method} ${spec.path} ${status}`;
+        expect(responses[status]?.content?.["application/json"]?.schema, label).toEqual({
+          oneOf: [{ $ref: `${REF_PREFIX}AskResult` }, { $ref: `${REF_PREFIX}ApiErrorBody` }],
+        });
+        expect(responses[status]?.description, `${label} description`).toContain("AskResult");
+      }
+      expect(
+        responses["401"]?.content?.["application/json"]?.schema,
+        `${spec.method} ${spec.path} 401`,
+      ).toEqual({ $ref: `${REF_PREFIX}ApiErrorBody` });
+    }
+  });
+
+  it("answers every other operation's 400, 401, 404, 500 and default with plain ApiErrorBody", () => {
+    const doc = document();
+    const others = routeSpecs().filter((s) => s.answer !== "AskResult");
+    expect(others.length, "at least one non-AskResult operation").toBeGreaterThan(0);
+    for (const spec of others) {
+      const responses = operationOf(doc, spec.method, spec.path).responses as Record<
+        string,
+        { content?: Record<string, { schema: Json }> }
+      >;
+      for (const status of ["400", "401", "404", "500", "default"]) {
+        expect(
+          responses[status]?.content?.["application/json"]?.schema,
           `${spec.method} ${spec.path} ${status}`,
         ).toEqual({ $ref: `${REF_PREFIX}ApiErrorBody` });
       }
