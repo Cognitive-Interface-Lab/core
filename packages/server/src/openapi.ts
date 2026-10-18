@@ -127,7 +127,7 @@ const ASK_RESULT_ANSWER = "AskResult";
 /**
  * The errors every route can answer with, each an `ApiErrorBody`, plus `default` for any other
  * error status. A route answering `AskResult` answers a failed model call with that `AskResult`,
- * so its 400, 404, 500 and `default` take either body; its 401 is still an `ApiErrorBody`.
+ * so all five take either body. Its 401 is also how a rejected provider key answers.
  */
 function errors(spec: RouteSpec, schemas: Record<string, unknown>): Record<string, unknown> {
   const errorBody = schemaRef("ApiErrorBody", schemas, "the error responses");
@@ -145,7 +145,9 @@ function errors(spec: RouteSpec, schemas: Record<string, unknown>): Record<strin
       : { description, content: { "application/json": { schema: errorBody } } };
   return {
     "400": failure("The request is not valid."),
-    "401": { description: "Authentication is required.", content: { "application/json": { schema: errorBody } } },
+    "401": failure(
+      askResult ? "Authentication is required, or a provider rejected its key." : "Authentication is required.",
+    ),
     "404": failure("Not found."),
     "500": failure("Internal error."),
     default: failure("Any other error status (405, 409, 413, 415, 422, 429, 499, 503, 504)."),
