@@ -10,6 +10,7 @@ import {
 import { Hono, type Context } from "hono";
 import { errorResponse, HttpError, readBody, type BodySchema } from "./errors.js";
 import { chat } from "./routes/chat.js";
+import { openapi } from "./openapi.js";
 import { graphs } from "./routes/graphs.js";
 import { meta } from "./routes/meta.js";
 import { turns } from "./routes/turns.js";
@@ -22,7 +23,10 @@ export type RouteSpec = {
   summary: string;
   /** A contracts type name. */
   body?: string;
-  /** A type name, "TurnEvent stream" or "none". */
+  /**
+   * A contracts type name, or one of three special values: "TurnEvent stream" (server-sent
+   * TurnEvents), "none" (204, no content) and "OpenAPI document" (JSON with no schema in contracts).
+   */
   answer: string;
 };
 
@@ -84,6 +88,8 @@ export type CoreEnv = {
 /** What a route module can use. Internal: not exported from index.ts. */
 export type RouteDeps = {
   options: CoreHandlerOptions;
+  /** Every route's spec, as `routeSpecs()` lists them. For the OpenAPI document. */
+  specs: RouteSpec[];
   /** The authenticated principal of this request (routes run only after authentication). */
   principal(c: Context<CoreEnv>): Principal;
   /** This request's credentials (credentialsFor), computed once per request and cached on the context. */
@@ -109,7 +115,7 @@ export type RouteModule = {
 };
 
 /** Every route module, in registration order. Later slices append here. */
-const MODULES: RouteModule[] = [meta, chat, turns, graphs];
+const MODULES: RouteModule[] = [meta, chat, turns, graphs, openapi];
 
 /** Every route module's specs, in registration order. */
 export function routeSpecs(): RouteSpec[] {
@@ -177,6 +183,7 @@ export function createCoreHandler(options: CoreHandlerOptions): CoreHandler {
 
   const deps: RouteDeps = {
     options,
+    specs,
     principal,
     credentials,
     registry,
