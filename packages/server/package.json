@@ -7,13 +7,18 @@
       "@core/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./node": {
+      "@core/source": "./src/node.ts",
+      "types": "./dist/node.d.ts",
+      "import": "./dist/node.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
+    "build": "tsdown src/index.ts src/node.ts --format esm --dts --clean --no-fixed-extension",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
   "dependencies": {
@@ -22,6 +27,7 @@
     "@core/models": "workspace:*",
     "@core/runtime": "workspace:*",
     "@core/tools": "workspace:*",
+    "@hono/node-server": "^2.1.3",
     "hono": "^4.13.12"
   }
 }
