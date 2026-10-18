@@ -273,6 +273,22 @@ importers:
         specifier: ^4.0.0
         version: 4.6.5
 
+  packages/client:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/server':
+        specifier: workspace:*
+        version: link:../server
+
   packages/contracts:
     dependencies:
       zod:
