@@ -2,16 +2,20 @@
   "name": "@core/graph",
   "version": "0.1.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "@core/source": "./src/index.ts",
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
     },
     "./testing": {
       "@core/source": "./src/testing/store-contract.ts",
       "types": "./dist/testing/store-contract.d.ts",
-      "import": "./dist/testing/store-contract.js"
+      "import": "./dist/testing/store-contract.js",
+      "default": "./dist/testing/store-contract.js"
     }
   },
   "files": [
