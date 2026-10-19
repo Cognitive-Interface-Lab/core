@@ -67,7 +67,7 @@ function streamError(events: StreamEvent[]) {
 
 describe("presets", () => {
   it("define the eight hosted and local servers", () => {
-    expect(PRESETS).toEqual({
+    const eight: Record<string, Preset> = {
       openai: { baseURL: "https://api.openai.com/v1", requiresKey: true },
       ollama: { baseURL: "http://127.0.0.1:11434/v1", requiresKey: false },
       openrouter: { baseURL: "https://openrouter.ai/api/v1", requiresKey: true },
@@ -86,7 +86,9 @@ describe("presets", () => {
         api: "anthropic",
         models: "anthropic",
       },
-    });
+    };
+    expect(Object.keys(eight)).toHaveLength(8);
+    for (const [id, preset] of Object.entries(eight)) expect(PRESETS[id]).toEqual(preset);
   });
 });
 

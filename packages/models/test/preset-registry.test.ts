@@ -44,14 +44,18 @@ describe("createPresetRegistry", () => {
     expect(createPresetRegistry(new MemoryCredentialStore()).list()).toEqual([...presetIds].sort());
   });
 
-  it("gives Anthropic presets an AnthropicProvider and the others an OpenAICompatibleProvider", () => {
+  it("gives an OpenAICompatibleProvider to a preset with no api or api openai, an AnthropicProvider to anthropic, and neither to any other api", () => {
     const registry = createPresetRegistry(new MemoryCredentialStore());
     for (const id of presetIds) {
       const provider = registry.get(id);
-      if (PRESETS[id]?.api === "anthropic") {
+      const api: string = PRESETS[id]?.api ?? "openai";
+      if (api === "openai") {
+        expect(provider, id).toBeInstanceOf(OpenAICompatibleProvider);
+      } else if (api === "anthropic") {
         expect(provider, id).toBeInstanceOf(AnthropicProvider);
       } else {
-        expect(provider, id).toBeInstanceOf(OpenAICompatibleProvider);
+        expect(provider, id).not.toBeInstanceOf(OpenAICompatibleProvider);
+        expect(provider, id).not.toBeInstanceOf(AnthropicProvider);
       }
     }
   });

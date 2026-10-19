@@ -83,10 +83,11 @@ describe("completeRoute", () => {
 
   it("completes the segment after the last comma", async () => {
     const fake = fakeIo();
-    expect(await completeRoute("ollama:llama3,op", fake.io)).toEqual([
-      "ollama:llama3,openai:",
-      "ollama:llama3,openrouter:",
-    ]);
+    const expected = Object.keys(PRESETS)
+      .filter((id) => id.startsWith("op"))
+      .sort()
+      .map((id) => `ollama:llama3,${id}:`);
+    expect(await completeRoute("ollama:llama3,op", fake.io)).toEqual(expected);
     expectNoSideEffects(fake);
   });
 

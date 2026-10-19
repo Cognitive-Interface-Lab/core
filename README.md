@@ -40,11 +40,14 @@ If `core` is still not found, add `~/.local/bin` to your PATH (most Linux shells
 
 Sign in to a provider:
 
-    core login openrouter      # opens the browser; approve there and you are signed in
-    core login cloudflare      # the same, by link (--key pastes an API token and account ID instead)
-    core login openai          # also groq and vercel: opens the page that creates an API key, then asks you to paste it
-    core login anthropic       # Claude API: opens the Claude Console key page, then asks you to paste the key
-    core login anthropic-aws   # Claude Platform on AWS: asks for the AWS region, the workspace ID and an AWS-Console API key
+    core login openrouter         # opens the browser; approve there and you are signed in
+    core login cloudflare         # the same, by link (--key pastes an API token and account ID instead)
+    core login openai             # also groq and vercel: opens the page that creates an API key, then asks you to paste it
+    core login anthropic          # Claude API: opens the Claude Console key page, then asks you to paste the key
+    core login anthropic-aws      # Claude Platform on AWS: asks for the AWS region, the workspace ID and an AWS-Console API key
+    core login google             # Google Gemini: opens the AI Studio key page, then asks you to paste the key
+    core login azure              # Azure OpenAI: asks for the resource endpoint, then the key; route to a deployment as azure:<deployment>
+    core login openai-compatible  # any OpenAI-compatible server (LM Studio, vLLM, a proxy): asks for its base URL, then a key (any placeholder if it ignores keys)
 
 Ollama needs no sign-in. If the browser should not open by itself, add `--no-open` and core prints the link for you to open on this machine. Sign-ins go to the OS keychain when one is available. `core help <command>` shows each command's options.
 

@@ -309,15 +309,22 @@ describe("makeProvider: adapter choice", () => {
     }
   });
 
-  it("builds an OpenAICompatibleProvider for every other preset, and for an id with no preset", async () => {
+  it("builds an OpenAICompatibleProvider for every preset with no api or api openai, and for an id with no preset; any other api gets neither it nor an AnthropicProvider", async () => {
     const fake = fakeIo();
     const gateway = await openGateway(fake.io, {});
-    const others = Object.keys(PRESETS).filter((id) => PRESETS[id]?.api !== "anthropic");
+    const apiOf = (id: string): string => PRESETS[id]?.api ?? "openai";
+    const others = Object.keys(PRESETS).filter((id) => apiOf(id) === "openai");
     expect(others).toEqual(expect.arrayContaining(["groq", "openai", "openrouter", "ollama", "cloudflare", "vercel"]));
     for (const id of [...others, "not-a-preset"]) {
       const provider = makeProvider(id, gateway.credentials, fake.io);
       expect(provider).toBeInstanceOf(OpenAICompatibleProvider);
       expect(provider).not.toBeInstanceOf(AnthropicProvider);
+    }
+    const own = Object.keys(PRESETS).filter((id) => apiOf(id) !== "openai" && apiOf(id) !== "anthropic");
+    for (const id of own) {
+      const provider = makeProvider(id, gateway.credentials, fake.io);
+      expect(provider, id).not.toBeInstanceOf(OpenAICompatibleProvider);
+      expect(provider, id).not.toBeInstanceOf(AnthropicProvider);
     }
   });
 

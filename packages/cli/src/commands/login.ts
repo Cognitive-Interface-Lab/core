@@ -28,6 +28,8 @@ export const KEY_PAGES: Record<string, string> = {
   vercel: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
   anthropic: "https://platform.claude.com/settings/keys",
   "anthropic-aws": "https://platform.claude.com/docs/en/build-with-claude/claude-platform-on-aws",
+  google: "https://aistudio.google.com/apikey",
+  azure: "https://portal.azure.com/",
 };
 
 const KEY_LABELS: Record<string, string> = {
@@ -38,6 +40,8 @@ const KEY_LABELS: Record<string, string> = {
   vercel: "Vercel AI Gateway",
   anthropic: "Anthropic",
   "anthropic-aws": "Claude Platform on AWS",
+  google: "Google Gemini",
+  azure: "Azure OpenAI",
 };
 
 const OPTIONS = {
@@ -58,6 +62,9 @@ providers:
   anthropic             paste an API key; core opens the page that creates one
   anthropic-aws         Claude Platform on AWS: asks for region, workspace ID and API key
   ollama                needs no sign-in
+  openai-compatible     any OpenAI-compatible server: asks for its base URL, then an API key
+  google                Google Gemini: paste an API key; core opens the page that creates one
+  azure                 Azure OpenAI: asks for the resource endpoint, then the API key
 
 options:
   --key               paste an API key or token instead of signing in with the browser
@@ -148,7 +155,27 @@ async function obtain(provider: string, flags: Flags, io: Io, signal: AbortSigna
     const apiKey = nonEmpty(await io.prompt.secret("Claude Platform on AWS API key: "));
     return { kind: "api-key", apiKey, region, workspaceId };
   }
-  const label = provider === "openrouter" ? "OpenRouter" : provider === "anthropic" ? "Anthropic" : provider;
+  if (provider === "openai-compatible") {
+    const baseURL = compatibleBaseURL(await io.prompt.line("Base URL of the server (for example http://localhost:1234/v1): "));
+    const apiKey = requiredKey(
+      await io.prompt.secret("API key (a server that ignores keys accepts any placeholder): "),
+      "an API key is required; for a server that ignores keys, enter any placeholder",
+    );
+    return { kind: "api-key", apiKey, baseURL };
+  }
+  if (provider === "azure") {
+    const baseURL = azureEndpoint(await io.prompt.line("Azure OpenAI endpoint (as the Azure portal shows it, https://<resource>.openai.azure.com/): "));
+    const apiKey = requiredKey(await io.prompt.secret("Azure OpenAI API key: "), "an API key is required");
+    return { kind: "api-key", apiKey, baseURL };
+  }
+  const label =
+    provider === "openrouter"
+      ? "OpenRouter"
+      : provider === "anthropic"
+        ? "Anthropic"
+        : provider === "google"
+          ? "Google Gemini"
+          : provider;
   return { kind: "api-key", apiKey: nonEmpty(await io.prompt.secret(`${label} API key: `)) };
 }
 
@@ -208,6 +235,10 @@ function opener(provider: string, flags: Flags, io: Io): OpenUrl {
  * Returns the model count, or `undefined` when the check could not be made (a warning is printed).
  */
 async function verify(provider: string, credential: StoredCredential, io: Io, interrupt: AbortSignal): Promise<number | undefined> {
+  if (provider === "azure") {
+    io.stderr.write("not verified: Azure OpenAI cannot list deployments\n");
+    return undefined;
+  }
   // Reuse the store's own mapping from a saved record to provider credentials.
   const mapper = new PersistentCredentialStore({ secrets: new MemorySecretStore() });
   await mapper.save(provider, credential);
@@ -223,6 +254,41 @@ async function verify(provider: string, credential: StoredCredential, io: Io, in
     io.stderr.write(`warning: saved, but could not verify: ${error.code}: ${error.message}\n`);
     return undefined;
   }
+}
+
+/** An OpenAI-compatible server's address: `https://`, or `http://` only for this machine. */
+function compatibleBaseURL(value: string | undefined): string {
+  const text = nonEmpty(value);
+  const url = parseUrl(text);
+  const local = url?.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
+  if (url === undefined || (url.protocol !== "https:" && !local)) {
+    throw new UsageError("the base URL must start with https://, or with http:// for localhost or 127.0.0.1 only");
+  }
+  return text;
+}
+
+/**
+ * An Azure OpenAI resource endpoint, which is always `https://`, saved as its origin plus `/openai`
+ * (Trilix's rule): the portal's bare endpoint, the `/openai` form and a full deployment URL all
+ * give `https://<resource>.openai.azure.com/openai`, the address the Azure adapter expects.
+ */
+function azureEndpoint(value: string | undefined): string {
+  const url = parseUrl(nonEmpty(value));
+  if (url?.protocol !== "https:") {
+    throw new UsageError("the Azure OpenAI endpoint must be an https:// URL, such as https://<resource>.openai.azure.com/openai");
+  }
+  return `${url.origin}/openai`;
+}
+
+function parseUrl(text: string): URL | undefined {
+  return URL.canParse(text) ? new URL(text) : undefined;
+}
+
+/** A key that must be there: the saved sign-in rejects an empty one. */
+function requiredKey(value: string | undefined, rule: string): string {
+  const trimmed = value?.trim();
+  if (!trimmed) throw new UsageError(rule);
+  return trimmed;
 }
 
 function nonEmpty(value: string | undefined): string {

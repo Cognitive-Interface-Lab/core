@@ -208,11 +208,15 @@ export abstract class AiSdkProvider implements ModelProvider {
 
   /**
    * Reads the credentials, fills the address and checks what the preset requires. An explicit
-   * `credentials.baseURL` wins and is used as is; otherwise `{accountId}` and `{region}` in the
-   * preset address are filled from the credentials.
+   * `credentials.baseURL` wins and is used as is (a preset with `requiresBaseURL` has no other
+   * address); otherwise `{accountId}` and `{region}` in the preset address are filled from the
+   * credentials.
    */
   protected async connection(): Promise<Connection> {
     const credentials = await this.#credentials.get(this.id);
+    if (this.preset?.requiresBaseURL && !credentials?.baseURL) {
+      throw new CoreError("auth", `${this.id} needs a base URL`, { provider: this.id });
+    }
     let baseURL = credentials?.baseURL ?? this.preset?.baseURL;
     if (!baseURL) {
       throw new CoreError("bad_request", `${this.id}: no base URL configured`, { provider: this.id });

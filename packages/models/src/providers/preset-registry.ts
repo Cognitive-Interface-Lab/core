@@ -3,13 +3,16 @@ import type { CredentialStore } from "../credentials.js";
 import type { ModelProvider } from "../provider.js";
 import { ProviderRegistry } from "../registry.js";
 import { AnthropicProvider } from "./anthropic.js";
+import { AzureOpenAIProvider } from "./azure.js";
+import { GoogleProvider } from "./google.js";
 import { OpenAICompatibleProvider } from "./openai-compatible.js";
 import { PRESETS } from "./presets.js";
 
 /**
  * The adapter for a preset, built on the given credentials: `AnthropicProvider` when the preset's
- * `api` is `"anthropic"`, else `OpenAICompatibleProvider`. Both can list their models, so
- * `listModels` is not optional here. Throws `CoreError` `not_found` for an id with no preset.
+ * `api` is `"anthropic"`, `GoogleProvider` for `"google"`, `AzureOpenAIProvider` for `"azure"`, else
+ * `OpenAICompatibleProvider`. Every adapter has a `listModels` (Azure's rejects), so it is not
+ * optional here. Throws `CoreError` `not_found` for an id with no preset.
  */
 export function presetProvider(
   id: string,
@@ -26,7 +29,21 @@ export function presetProvider(
     preset,
     ...(opts?.fetch ? { fetch: opts.fetch } : {}),
   };
-  return preset?.api === "anthropic" ? new AnthropicProvider(config) : new OpenAICompatibleProvider(config);
+  const api = preset?.api ?? "openai";
+  switch (api) {
+    case "openai":
+      return new OpenAICompatibleProvider(config);
+    case "anthropic":
+      return new AnthropicProvider(config);
+    case "google":
+      return new GoogleProvider(config);
+    case "azure":
+      return new AzureOpenAIProvider(config);
+    default: {
+      const unreachable: never = api;
+      throw new CoreError("unknown", `${id}: unsupported API "${String(unreachable)}"`, { provider: id });
+    }
+  }
 }
 
 /**
