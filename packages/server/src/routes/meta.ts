@@ -38,7 +38,8 @@ export const meta: RouteModule = {
         registry.list().map(async (id) => {
           const preset = Object.hasOwn(PRESETS, id) ? PRESETS[id] : undefined;
           const requiresKey = preset?.requiresKey ?? false;
-          if (!requiresKey) return { id, ready: true, requiresKey };
+          // A preset whose address comes only from the sign-in has nothing to call until it has one.
+          if (!requiresKey && !preset?.requiresBaseURL) return { id, ready: true, requiresKey };
           try {
             return { id, ready: (await credentials.get(id)) !== undefined, requiresKey };
           } catch (error) {
