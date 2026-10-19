@@ -8,6 +8,7 @@ import {
   type StreamEvent,
   type ToolCall,
   type Usage,
+  messageText,
 } from "@core/contracts";
 import type { ChatOptions, ModelProvider } from "../provider.js";
 import { parseStructuredOutput } from "../structured.js";
@@ -124,7 +125,7 @@ export class MockProvider implements ModelProvider {
       return { error: new CoreError("unavailable", "mock script exhausted", { provider: this.id }) };
     }
     const lastUser = [...req.messages].reverse().find((message) => message.role === "user");
-    return { turn: { text: `echo: ${lastUser?.content ?? ""}` } };
+    return { turn: { text: `echo: ${lastUser ? messageText(lastUser.content) : ""}` } };
   }
 
   #finishReason(turn: MockTurn): FinishReason {
@@ -132,7 +133,10 @@ export class MockProvider implements ModelProvider {
   }
 
   #usage(req: ChatRequest, text: string): Usage {
-    const inputTokens = req.messages.reduce((total, message) => total + message.content.length, 0);
+    const inputTokens = req.messages.reduce(
+      (total, message) => total + (message.role === "user" ? messageText(message.content) : message.content).length,
+      0,
+    );
     return { inputTokens, outputTokens: text.length };
   }
 
