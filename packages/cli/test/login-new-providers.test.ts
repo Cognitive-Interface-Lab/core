@@ -185,6 +185,28 @@ describe("core login azure", () => {
     expectNoSecrets(fake, [KEY]);
   });
 
+  it.each([
+    ["the bare endpoint, as the Azure portal shows it", "https://my-res.openai.azure.com/"],
+    ["the endpoint with /openai", "https://my-res.openai.azure.com/openai"],
+    [
+      "a full deployment URL",
+      "https://my-res.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2024-10-21",
+    ],
+  ])("saves the endpoint's origin plus /openai as the base URL, from %s", async (_name, endpoint) => {
+    const http = providers(() => json({}));
+    const fake = fakeIo({ answers: { line: [endpoint], secret: [KEY] }, fetch: http.fetch });
+
+    expect(await run(["login", "azure"], fake.io)).toBe(0);
+
+    expect(await saved(fake, "azure")).toEqual({
+      kind: "api-key",
+      apiKey: KEY,
+      baseURL: "https://my-res.openai.azure.com/openai",
+    });
+    expect(http.calls).toHaveLength(0);
+    expectNoSecrets(fake, [KEY]);
+  });
+
   it("saves the endpoint and key trimmed", async () => {
     const http = providers(() => json({}));
     const fake = fakeIo({ answers: { line: [`  ${ENDPOINT}  `], secret: [`  ${KEY}  `] }, fetch: http.fetch });
@@ -245,8 +267,7 @@ describe("core login google", () => {
 
     expect(await run(["login", "google"], fake.io)).toBe(0);
 
-    expect(fake.asked).toHaveLength(1);
-    expect(fake.asked[0]).toMatch(/api key/i);
+    expect(fake.asked).toEqual(["Google Gemini API key: "]);
     expect(http.calls).toHaveLength(1);
     const call = http.calls[0];
     expect(call?.method).toBe("GET");
