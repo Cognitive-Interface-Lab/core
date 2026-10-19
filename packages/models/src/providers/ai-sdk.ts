@@ -8,6 +8,7 @@ import {
   type StreamEvent,
   type ToolCall,
   type Usage,
+  type UserContentPart,
 } from "@core/contracts";
 import {
   APICallError,
@@ -18,10 +19,13 @@ import {
   jsonSchema,
   streamText,
   tool,
+  type Experimental_DownloadFunction as DownloadFunction,
+  type FilePart,
   type JSONSchema7,
   type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
+  type TextPart as ModelTextPart,
   type ToolSet,
 } from "ai";
 import { parseStructuredOutput } from "../structured.js";
@@ -46,6 +50,8 @@ const UNAVAILABLE_CAUSE_CODES = new Set([
   "UND_ERR_SOCKET",
 ]);
 const TIMEOUT_CAUSE_CODES = new Set(["ETIMEDOUT", "UND_ERR_CONNECT_TIMEOUT"]);
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 30_000;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export type ProviderOptions = {
   id: string;
@@ -309,6 +315,10 @@ export abstract class AiSdkProvider implements ModelProvider {
       allowSystemInMessages: true,
       maxRetries: 0,
       ...(opts?.signal ? { abortSignal: opts.signal } : {}),
+      // Only with an injected `fetch`: without one the SDK's own downloader (and its URL checks) stays.
+      ...(this.fetchImpl
+        ? { experimental_download: downloadImagesWith(this.fetchImpl, this.id, opts?.signal) }
+        : {}),
       ...(tools ? { tools, ...(req.toolChoice ? { toolChoice: req.toolChoice } : {}) } : {}),
       ...(req.temperature !== undefined && this.acceptsTemperature(req.model.model)
         ? { temperature: req.temperature }
@@ -441,13 +451,116 @@ function toToolSet(req: ChatRequest): ToolSet | undefined {
   return tools;
 }
 
+/**
+ * The AI SDK's `experimental_download` over the injected `fetch`, so an image the model cannot fetch
+ * itself is downloaded through whatever guard the host put on that `fetch`, never with the global
+ * one. An image the model fetches itself is passed through (`null`). The answer lines up by index
+ * with the request.
+ */
+function downloadImagesWith(fetchImpl: typeof fetch, provider: string, signal: AbortSignal | undefined): DownloadFunction {
+  return (requested) =>
+    Promise.all(
+      requested.map(({ url, isUrlSupportedByModel }) =>
+        isUrlSupportedByModel ? null : downloadImage(fetchImpl, provider, url, signal),
+      ),
+    );
+}
+
+/**
+ * GETs one image with `fetchImpl`. Every message names the host only: a path or query can carry a
+ * token. A `CoreError` from `fetchImpl` (a host's guard refusing an address) passes through, and so
+ * does a failure after the caller cancelled, for the caller's own error mapping.
+ */
+async function downloadImage(
+  fetchImpl: typeof fetch,
+  provider: string,
+  url: URL,
+  callerSignal: AbortSignal | undefined,
+): Promise<{ data: Uint8Array; mediaType: string }> {
+  const host = url.host;
+  const refuse = (summary: string) => new CoreError("bad_request", summary, { provider });
+  const signal = AbortSignal.any([
+    AbortSignal.timeout(IMAGE_DOWNLOAD_TIMEOUT_MS),
+    ...(callerSignal ? [callerSignal] : []),
+  ]);
+  try {
+    const response = await fetchImpl(url.toString(), { method: "GET", signal });
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => undefined);
+      throw refuse(`could not download the image from ${host}: HTTP ${response.status}`);
+    }
+    const mediaType = (response.headers.get("content-type") ?? "").split(";")[0]?.trim().toLowerCase() ?? "";
+    if (!mediaType.startsWith("image/")) {
+      void response.body?.cancel().catch(() => undefined);
+      throw refuse(`${host} did not answer with an image`);
+    }
+    const tooLarge = () => refuse(`the image from ${host} is larger than 10 MiB`);
+    if (Number(response.headers.get("content-length")) > MAX_IMAGE_BYTES) {
+      void response.body?.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    return { data: await readAtMost(response, MAX_IMAGE_BYTES, tooLarge), mediaType };
+  } catch (error) {
+    if (CoreError.is(error) || callerSignal?.aborted) throw error;
+    throw new CoreError("unavailable", `could not download the image from ${host}`, { provider });
+  }
+}
+
+/** The body's bytes, throwing `tooLarge()` as soon as more than `limit` have arrived. */
+async function readAtMost(response: Response, limit: number, tooLarge: () => CoreError): Promise<Uint8Array> {
+  if (response.body === null) return new Uint8Array(0);
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > limit) throw tooLarge();
+      chunks.push(value);
+    }
+  } finally {
+    void reader.cancel().catch(() => undefined);
+  }
+  const data = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    data.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return data;
+}
+
+/**
+ * An image becomes a `file` part, not the SDK's deprecated `image` part (which logs a warning on
+ * every request). A data URL is split into its media type and base64 data; an http(s) URL stays a
+ * URL, for the SDK to hand to the model or to download.
+ */
+function toUserContentPart(part: UserContentPart): ModelTextPart | FilePart {
+  if (part.type === "text") return { type: "text", text: part.text };
+  if (part.url.startsWith("data:")) {
+    const comma = part.url.indexOf(",");
+    return {
+      type: "file",
+      mediaType: part.url.slice("data:".length, part.url.indexOf(";")),
+      data: { type: "data", data: part.url.slice(comma + 1) },
+    };
+  }
+  return { type: "file", mediaType: "image", data: { type: "url", url: new URL(part.url) } };
+}
+
 function toModelMessages(req: ChatRequest): ModelMessage[] {
   return req.messages.map((message): ModelMessage => {
     switch (message.role) {
       case "system":
         return { role: "system", content: message.content };
       case "user":
-        return { role: "user", content: message.content };
+        return {
+          role: "user",
+          content:
+            typeof message.content === "string" ? message.content : message.content.map(toUserContentPart),
+        };
       case "assistant":
         if (!message.toolCalls || message.toolCalls.length === 0) {
           return { role: "assistant", content: message.content };
