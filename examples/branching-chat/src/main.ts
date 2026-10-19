@@ -5,6 +5,7 @@ import {
   CoreErrorShapeSchema,
   ModelRefSchema,
   formatModelRef,
+  messageText,
   parseModelRef,
   type GraphState,
   type Message,
@@ -128,7 +129,7 @@ export async function run(
 
     /** Adds `input` to a branch, runs the turn and prints both; false after printing why a turn failed. */
     const ask = async (label: string, branchName: string, branchId: string, input: Message): Promise<boolean> => {
-      if (input.role === "user") out.write(`[${branchName}] user: ${input.content}\n`);
+      if (input.role === "user") out.write(`[${branchName}] user: ${messageText(input.content)}\n`);
       const watch = new TurnWatch();
       for await (const event of runBranchTurn({ ...turn, route: steps(route), graph, branchId, input })) {
         watch.observe(event);
@@ -166,7 +167,7 @@ export async function run(
         if (target === undefined) return;
         if (event.type === "round" && event.round === 1) {
           const last = conversation(graph.state, target.id).at(-1);
-          if (last?.role === "user") out.write(`[${target.name}] user: ${last.content}\n`);
+          if (last?.role === "user") out.write(`[${target.name}] user: ${messageText(last.content)}\n`);
         }
         if (event.type === "turn-finish") printAnswers(out, target.name, event.messages);
       },
@@ -205,7 +206,7 @@ async function show(graphId: string, db: string | undefined, out: Writer, err: W
     for (const branch of Object.values(graph.state.branches)) {
       out.write(`\n## ${branch.name}\n`);
       for (const message of graph.conversation(branch.id)) {
-        out.write(message.role === "tool" ? `tool ${message.toolName}: ${message.content}\n` : `${message.role}: ${message.content}\n`);
+        out.write(message.role === "tool" ? `tool ${message.toolName}: ${message.content}\n` : `${message.role}: ${message.role === "user" ? messageText(message.content) : message.content}\n`);
       }
     }
     return 0;
@@ -231,7 +232,9 @@ function tree(state: GraphState): string {
       if (branch.replayOf !== undefined) parts.push(`replay of ${nameOf(branch.replayOf)} via ${lastModel(state, branch.id)}`);
       const merge = nodes.find((node) => node.merge?.sourceBranchId === branch.id);
       if (merge !== undefined) parts.push(`merged into ${nameOf(merge.branchId)}`);
-      const last = (messages.at(-1)?.content ?? "").replace(/[\r\n]+/g, " ").slice(0, TREE_PREVIEW_CHARS);
+      const lastMessage = messages.at(-1);
+      const lastText = lastMessage === undefined ? "" : lastMessage.role === "user" ? messageText(lastMessage.content) : lastMessage.content;
+      const last = lastText.replace(/[\r\n]+/g, " ").slice(0, TREE_PREVIEW_CHARS);
       parts.push(`"${last}"`);
       return `${parts.join(" · ")}\n`;
     })

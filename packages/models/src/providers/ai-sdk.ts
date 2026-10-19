@@ -8,6 +8,7 @@ import {
   type StreamEvent,
   type ToolCall,
   type Usage,
+  type UserContentPart,
 } from "@core/contracts";
 import {
   APICallError,
@@ -18,10 +19,12 @@ import {
   jsonSchema,
   streamText,
   tool,
+  type FilePart,
   type JSONSchema7,
   type LanguageModel,
   type LanguageModelUsage,
   type ModelMessage,
+  type TextPart as ModelTextPart,
   type ToolSet,
 } from "ai";
 import { parseStructuredOutput } from "../structured.js";
@@ -441,13 +444,35 @@ function toToolSet(req: ChatRequest): ToolSet | undefined {
   return tools;
 }
 
+/**
+ * An image becomes a `file` part, not the SDK's deprecated `image` part (which logs a warning on
+ * every request). A data URL is split into its media type and base64 data; an http(s) URL stays a
+ * URL, for the SDK to hand to the model or to download.
+ */
+function toUserContentPart(part: UserContentPart): ModelTextPart | FilePart {
+  if (part.type === "text") return { type: "text", text: part.text };
+  if (part.url.startsWith("data:")) {
+    const comma = part.url.indexOf(",");
+    return {
+      type: "file",
+      mediaType: part.url.slice("data:".length, part.url.indexOf(";")),
+      data: { type: "data", data: part.url.slice(comma + 1) },
+    };
+  }
+  return { type: "file", mediaType: "image", data: { type: "url", url: new URL(part.url) } };
+}
+
 function toModelMessages(req: ChatRequest): ModelMessage[] {
   return req.messages.map((message): ModelMessage => {
     switch (message.role) {
       case "system":
         return { role: "system", content: message.content };
       case "user":
-        return { role: "user", content: message.content };
+        return {
+          role: "user",
+          content:
+            typeof message.content === "string" ? message.content : message.content.map(toUserContentPart),
+        };
       case "assistant":
         if (!message.toolCalls || message.toolCalls.length === 0) {
           return { role: "assistant", content: message.content };
