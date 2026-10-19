@@ -37,8 +37,8 @@ export function createNodeIo(): Io {
   async function line(question: string, opts: { signal?: AbortSignal } = {}): Promise<string | undefined> {
     const { signal } = opts;
     if (signal?.aborted) return undefined;
-    stderr.write(question);
     if (!interactive) {
+      stderr.write(question);
       const next = await pipedLines().next();
       if (!next.done) stderr.write("\n");
       return next.done ? undefined : next.value;
@@ -54,8 +54,9 @@ export function createNodeIo(): Io {
       return await new Promise<string | undefined>((resolve) => {
         rl.once("close", () => resolve(undefined));
         rl.once("SIGINT", () => rl.close());
-        // The question was already written above; readline is only needed for line editing.
-        rl.question("", (answer) => resolve(answer));
+        // Readline draws the question as its prompt. Written to stderr first, it would be erased:
+        // readline's first draw clears from the start of the cursor's row.
+        rl.question(question, (answer) => resolve(answer));
       });
     } finally {
       signal?.removeEventListener("abort", abort);
