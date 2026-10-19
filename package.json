@@ -11,7 +11,8 @@
     "typecheck": "pnpm -r typecheck",
     "lint": "eslint .",
     "test": "vitest run",
-    "gate": "bash scripts/gate.sh"
+    "gate": "bash scripts/gate.sh",
+    "pack:consumers": "node scripts/pack-consumers.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^3.0.0",

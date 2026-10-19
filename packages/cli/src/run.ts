@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { CoreError } from "@core/contracts";
 import type { SecretStore } from "@core/credentials";
+import type { CoreHandler } from "@core/server";
 import { logoutCommand, statusCommand } from "./commands/account.js";
 import { askCommand } from "./commands/ask.js";
 import { chatCommand } from "./commands/chat.js";
@@ -8,6 +9,8 @@ import { completionCommand } from "./commands/completion.js";
 import { configCommand } from "./commands/config.js";
 import { loginCommand } from "./commands/login.js";
 import { modelsCommand } from "./commands/models.js";
+import { serveCommand } from "./commands/serve.js";
+import { unpairCommand } from "./commands/unpair.js";
 import { completeRoute } from "./completion/route.js";
 
 /** Everything the commands touch in the outside world, so each can be tested with a fake. */
@@ -19,8 +22,8 @@ export type Io = {
   interactive: boolean;
   configDir: string;
   prompt: {
-    /** `undefined` = end of input or Ctrl+C. */
-    line(question: string): Promise<string | undefined>;
+    /** `undefined` = end of input, Ctrl+C, or `signal` aborted (a TTY question then closes at once). */
+    line(question: string, opts?: { signal?: AbortSignal }): Promise<string | undefined>;
     /** Never echoes in a TTY; reads one line from piped stdin. */
     secret(question: string): Promise<string | undefined>;
     /** A numbered list; the answer is 0-based. */
@@ -35,6 +38,8 @@ export type Io = {
   openSecrets(): Promise<SecretStore>;
   /** Ctrl+C while a command runs; returns the unsubscribe function. */
   onInterrupt(handler: () => void): () => void;
+  /** Serves a core handler on a local port; `close` stops it. */
+  serve(handler: CoreHandler, port: number): Promise<{ url: string; close(): Promise<void> }>;
 };
 
 export type Command = {
@@ -74,6 +79,12 @@ export const commands: Record<string, Command> = {
   },
   get completion() {
     return completionCommand;
+  },
+  get serve() {
+    return serveCommand;
+  },
+  get unpair() {
+    return unpairCommand;
   },
 };
 
@@ -168,7 +179,7 @@ function commandUsage(name: string, command: Command): string {
   return `usage: core ${name} ${command.usage}\n\n${command.summary}\n`.replace(/ \n/g, "\n");
 }
 
-function version(): string {
+export function version(): string {
   const manifest = createRequire(import.meta.url)("../package.json") as { version: string };
   return manifest.version;
 }

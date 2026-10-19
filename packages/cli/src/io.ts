@@ -4,6 +4,7 @@ import { posix, win32 } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import { CoreError } from "@core/contracts";
 import { openSecretStore, type SecretStore } from "@core/credentials";
+import { serveLocal } from "@core/server/node";
 import type { Io } from "./run.js";
 
 type Env = Record<string, string | undefined>;
@@ -33,22 +34,32 @@ export function createNodeIo(): Io {
     return piped.lines;
   };
 
-  async function line(question: string): Promise<string | undefined> {
-    stderr.write(question);
+  async function line(question: string, opts: { signal?: AbortSignal } = {}): Promise<string | undefined> {
+    const { signal } = opts;
+    if (signal?.aborted) return undefined;
     if (!interactive) {
+      stderr.write(question);
       const next = await pipedLines().next();
       if (!next.done) stderr.write("\n");
       return next.done ? undefined : next.value;
     }
     const rl = createInterface({ input: process.stdin, output: stderr, terminal: true });
+    // An aborted question closes its readline, so it can never take an answer meant for another.
+    const abort = (): void => {
+      stderr.write("\n");
+      rl.close();
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     try {
       return await new Promise<string | undefined>((resolve) => {
         rl.once("close", () => resolve(undefined));
         rl.once("SIGINT", () => rl.close());
-        // The question was already written above; readline is only needed for line editing.
-        rl.question("", (answer) => resolve(answer));
+        // Readline draws the question as its prompt. Written to stderr first, it would be erased:
+        // readline's first draw clears from the start of the cursor's row.
+        rl.question(question, (answer) => resolve(answer));
       });
     } finally {
+      signal?.removeEventListener("abort", abort);
       rl.close();
     }
   }
@@ -145,6 +156,7 @@ export function createNodeIo(): Io {
         if (handlers.length === 0) process.off("SIGINT", onSigint);
       };
     },
+    serve: (handler, port) => serveLocal({ handler, port }),
   };
 }
 

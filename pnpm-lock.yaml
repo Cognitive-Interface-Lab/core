@@ -254,18 +254,40 @@ importers:
       '@core/credentials':
         specifier: workspace:*
         version: link:../credentials
+      '@core/graph-sqlite':
+        specifier: workspace:*
+        version: link:../graph-sqlite
       '@core/models':
         specifier: workspace:*
         version: link:../models
       '@core/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@core/server':
+        specifier: workspace:*
+        version: link:../server
       '@core/tools':
         specifier: workspace:*
         version: link:../tools
       zod:
         specifier: ^4.0.0
         version: 4.6.5
+
+  packages/client:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/server':
+        specifier: workspace:*
+        version: link:../server
 
   packages/contracts:
     dependencies:
@@ -352,6 +374,30 @@ importers:
       '@core/tools':
         specifier: workspace:*
         version: link:../tools
+
+  packages/server:
+    dependencies:
+      '@core/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@core/graph':
+        specifier: workspace:*
+        version: link:../graph
+      '@core/models':
+        specifier: workspace:*
+        version: link:../models
+      '@core/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      '@core/tools':
+        specifier: workspace:*
+        version: link:../tools
+      '@hono/node-server':
+        specifier: ^2.1.3
+        version: 2.1.4(hono@4.13.13)
+      hono:
+        specifier: ^4.13.12
+        version: 4.13.13
 
   packages/tools:
     dependencies:

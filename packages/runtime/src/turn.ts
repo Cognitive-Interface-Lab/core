@@ -3,6 +3,7 @@ import {
   type Channel,
   type Message,
   type ToolCall,
+  type ToolDefinition,
   type TurnBudget,
   type TurnEvent,
   type TurnFinishReason,
@@ -28,6 +29,8 @@ export type RunTurnOptions = {
   temperature?: number;
   /** The output-token limit of each model request; unlike `budget.maxOutputTokens`, which caps the whole turn. */
   maxOutputTokens?: number;
+  /** Tools offered to the model that the caller runs; a round that calls one ends the turn with `client-tools`. */
+  clientTools?: ToolDefinition[];
 };
 
 /**
@@ -35,6 +38,11 @@ export type RunTurnOptions = {
  * until it answers without calling a tool or a limit ends the turn. Tools run one at a time, in
  * the order the model gave them. Never throws: every failure is an `error` event, and
  * `turn-finish` is always the last event, emitted exactly once, with the messages this turn added.
+ *
+ * Client tools (`clientTools`) are offered after the registry's tools and never run here. A round
+ * that calls one runs the registry calls of that round, then ends the turn with `client-tools`; the
+ * caller runs the client calls and starts a new turn. A client tool named like a registry tool on
+ * the channel is an error before any model call.
  *
  * Limits: `maxRounds` (default 8) ends the turn with `max-rounds`. `maxOutputTokens` ends it with
  * `budget` after a round's tool results once the output tokens used reach the limit and another
@@ -77,6 +85,20 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
   });
 
   try {
+    const clientTools = opts.clientTools ?? [];
+    const clientNames = new Set(clientTools.map((tool) => tool.name));
+    if (clientTools.length > 0) {
+      // A name on both lists would make the model's call ambiguous: refuse before any model call.
+      const registryNames = new Set(opts.tools.listFor(opts.channel).map((tool) => tool.name));
+      const clash = clientTools.find((tool) => registryNames.has(tool.name));
+      if (clash !== undefined) {
+        const message = `client tool "${clash.name}" is also a registry tool on channel "${opts.channel}"`;
+        yield { type: "error", error: new CoreError("bad_request", message).toJSON() };
+        yield finish("error");
+        return;
+      }
+    }
+
     for (let round = 1; round <= maxRounds; round++) {
       if (signal.aborted) {
         yield finish(cause ?? "aborted");
@@ -86,9 +108,10 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
       yield { type: "round", round };
 
       const definitions = opts.tools.listFor(opts.channel);
+      const offered = clientTools.length > 0 ? [...definitions, ...clientTools] : definitions;
       const request = {
         messages: [...opts.messages, ...added],
-        ...(definitions.length > 0 && { tools: definitions }),
+        ...(offered.length > 0 && { tools: offered }),
         ...(opts.temperature !== undefined && { temperature: opts.temperature }),
         ...(opts.maxOutputTokens !== undefined && { maxOutputTokens: opts.maxOutputTokens }),
       };
@@ -133,7 +156,10 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
         return;
       }
 
+      // A client call is the caller's to run: it gets no result here, and the turn ends below.
+      const awaitsClient = toolCalls.some((call) => clientNames.has(call.name));
       for (const call of toolCalls) {
+        if (clientNames.has(call.name)) continue;
         // After an abort the registry answers each remaining call with an error result, so every
         // tool call in the history still has its result.
         const result = await opts.tools.call(call, {
@@ -153,6 +179,11 @@ export async function* runTurn(opts: RunTurnOptions): AsyncGenerator<TurnEvent, 
 
       if (signal.aborted) {
         yield finish(cause ?? "aborted");
+        return;
+      }
+      if (awaitsClient) {
+        // No round limit or budget check follows: the caller decides whether to continue.
+        yield finish("client-tools");
         return;
       }
       if (round === maxRounds) {

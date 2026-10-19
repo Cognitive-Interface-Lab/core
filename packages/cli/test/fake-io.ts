@@ -2,11 +2,22 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemorySecretStore, type SecretStore } from "@core/credentials";
+import type { CoreHandler } from "@core/server";
 import type { Io } from "../src/run.js";
+
+/** A scripted line answer: the text, `undefined` for end of input, or a function that waits (it gets the prompt's signal). */
+export type LineAnswer = string | undefined | ((signal: AbortSignal | undefined) => Promise<string | undefined>);
+
+/** A line answer that waits until the prompt's signal aborts, then answers `undefined`, as the real prompt does. */
+export const untilAborted: LineAnswer = (signal) =>
+  new Promise((resolve) => {
+    if (signal === undefined || signal.aborted) return resolve(undefined);
+    signal.addEventListener("abort", () => resolve(undefined), { once: true });
+  });
 
 /** Scripted answers, handed out in order; once a script runs out the prompt answers `undefined` (end of input). */
 export type Answers = {
-  line?: (string | undefined)[];
+  line?: LineAnswer[];
   secret?: (string | undefined)[];
   choose?: (number | undefined)[];
 };
@@ -19,6 +30,9 @@ export type FakeIoOptions = Partial<Omit<Io, "prompt">> & {
   secretStore?: SecretStore;
 };
 
+/** One call of the fake `serve`: the handler and port it was given, and how many times `close` ran. */
+export type Served = { handler: CoreHandler; port: number; closes: number };
+
 export type FakeIo = {
   io: Io;
   stdout(): string;
@@ -27,6 +41,8 @@ export type FakeIo = {
   opened: string[];
   /** Every question asked through `prompt`, in order. */
   asked: string[];
+  /** The `signal` each `prompt.line` call was given (`undefined` when it got none), in order. */
+  lineSignals: (AbortSignal | undefined)[];
   /** The store behind `openSecrets`. */
   secrets: SecretStore;
   /** How many times `openSecrets` was called. */
@@ -35,6 +51,10 @@ export type FakeIo = {
   interrupt(): boolean;
   /** How many interrupt handlers are subscribed right now. */
   interruptHandlers(): number;
+  /** Every call of the fake `serve`, in order. */
+  served: Served[];
+  /** Resolves with the first call of `serve`, once it happens. Never rejects: bound the wait in the test. */
+  whenServed(): Promise<Served>;
 };
 
 const tempDirs: string[] = [];
@@ -50,6 +70,7 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
   let err = "";
   const opened: string[] = [];
   const asked: string[] = [];
+  const lineSignals: (AbortSignal | undefined)[] = [];
   const handlers: (() => void)[] = [];
   const scripts = {
     line: [...(overrides.answers?.line ?? [])],
@@ -58,6 +79,11 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
   };
   const secrets = overrides.secretStore ?? new MemorySecretStore();
   let secretsOpened = 0;
+  const served: Served[] = [];
+  let firstServed: (call: Served) => void = () => {};
+  const whenServed = new Promise<Served>((resolve) => {
+    firstServed = resolve;
+  });
 
   let configDir = overrides.configDir;
   if (configDir === undefined) {
@@ -73,9 +99,11 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
     interactive: overrides.interactive ?? false,
     configDir,
     prompt: {
-      line: async (question) => {
+      line: async (question, opts) => {
         asked.push(question);
-        return scripts.line.shift();
+        lineSignals.push(opts?.signal);
+        const answer = scripts.line.shift();
+        return typeof answer === "function" ? answer(opts?.signal) : answer;
       },
       secret: async (question) => {
         asked.push(question);
@@ -112,6 +140,19 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
           if (index >= 0) handlers.splice(index, 1);
         };
       }),
+    serve:
+      overrides.serve ??
+      (async (handler, port) => {
+        const call: Served = { handler, port, closes: 0 };
+        served.push(call);
+        firstServed(call);
+        return {
+          url: `http://127.0.0.1:${port}`,
+          close: async () => {
+            call.closes += 1;
+          },
+        };
+      }),
   };
 
   return {
@@ -120,6 +161,7 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
     stderr: () => err,
     opened,
     asked,
+    lineSignals,
     secrets,
     secretsOpened: () => secretsOpened,
     interrupt: () => {
@@ -128,5 +170,7 @@ export function fakeIo(overrides: FakeIoOptions = {}): FakeIo {
       return handler !== undefined;
     },
     interruptHandlers: () => handlers.length,
+    served,
+    whenServed: () => whenServed,
   };
 }

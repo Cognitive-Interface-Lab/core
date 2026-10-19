@@ -3,19 +3,19 @@ import {
   CoreError,
   CoreErrorShapeSchema,
   ModelRefSchema,
-  RouteAttemptSchema,
   formatModelRef,
   type AskResult,
   type CoreErrorShape,
   type FinishReason,
   type Message,
   type ModelRef,
-  type RouteAttempt,
   type TurnEvent,
 } from "@core/contracts";
 import {
   ModelRouter,
   ProviderRegistry,
+  askResultFrom,
+  routeAttempts,
   type ModelProvider,
   type RoutedResponse,
   type RouteStep,
@@ -199,44 +199,13 @@ async function chatOnce(
   }
 }
 
-type AskFailure = Extract<AskResult, { ok: false }>;
-
-/** The failure result's error: the shape without `details`, because the attempts are already top level. */
-function resultError(error: CoreErrorShape): AskFailure["error"] {
-  return {
-    code: error.code,
-    message: error.message,
-    retryable: error.retryable,
-    ...(error.provider !== undefined && { provider: error.provider }),
-  };
-}
-
-/** The router's attempt log when `value` is one, else nothing: a malformed log is not worth failing over. */
-function routeAttempts(value: unknown): RouteAttempt[] {
-  const parsed = RouteAttemptSchema.array().safeParse(value);
-  return parsed.success ? parsed.data : [];
-}
-
 /** The `--json` result for how a `router.chat` call ended. `output` is only there when a schema was given. */
 function askResult(outcome: ChatOutcome, withOutput: boolean): AskResult {
   switch (outcome.kind) {
-    case "answered": {
-      const { response } = outcome;
-      return {
-        ok: true,
-        model: response.model,
-        text: response.message.content,
-        ...(withOutput && { output: response.output }),
-        usage: response.usage,
-        attempts: response.attempts,
-      };
-    }
+    case "answered":
+      return askResultFrom({ response: outcome.response }, { withOutput });
     case "failed":
-      return {
-        ok: false,
-        error: resultError(outcome.error.toJSON()),
-        attempts: routeAttempts(outcome.error.details?.["attempts"]),
-      };
+      return askResultFrom({ error: outcome.error }, { withOutput });
     case "interrupted":
       return { ok: false, error: { code: "aborted", message: "request aborted", retryable: false }, attempts: [] };
   }

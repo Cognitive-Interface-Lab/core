@@ -1,12 +1,25 @@
 import { z } from "zod";
 import * as errors from "./errors.js";
+import * as graphEvents from "./graph-events.js";
+import * as graphState from "./graph-state.js";
 import * as messages from "./messages.js";
 import * as models from "./models.js";
+import * as server from "./server.js";
 import * as stream from "./stream.js";
 import * as tools from "./tools.js";
 import * as turn from "./turn.js";
 
-const SCHEMA_MODULES: Record<string, unknown>[] = [errors, tools, messages, models, stream, turn];
+const SCHEMA_MODULES: Record<string, unknown>[] = [
+  errors,
+  tools,
+  messages,
+  models,
+  stream,
+  turn,
+  graphEvents,
+  graphState,
+  server,
+];
 
 /** JSON Schema for every exported `XxxSchema`, keyed by type name (`Message`, `ChatRequest`, ...). */
 export function toJsonSchemas(): Record<string, unknown> {
