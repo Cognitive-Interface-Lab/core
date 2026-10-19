@@ -94,6 +94,29 @@ describe("image url", () => {
     expect(UserMessageSchema.safeParse({ role: "user", content: [image(url)] }).success).toBe(false);
   });
 
+  // The data URL is exactly `data:image/<type>;base64,<data>` and ends there.
+  it.each(["data:image/png;base64,iVBORw0KGgo=<script>", "data:image/png;base64,iVBORw0KGgo=\nmore"])(
+    "rejects a data URL with anything after its data: %j",
+    (url) => {
+      expect(ImagePartSchema.safeParse(image(url)).success).toBe(false);
+      expect(UserContentPartSchema.safeParse(image(url)).success).toBe(false);
+      expect(UserMessageSchema.safeParse({ role: "user", content: [image(url)] }).success).toBe(false);
+    },
+  );
+
+  // Each part of the form is pinned: the start, the lower-case subtype, non-empty data and at most two `=`.
+  it.each([
+    "xdata:image/png;base64,iVBORw0KGgo=",
+    "data:image/PNG;base64,iVBORw0KGgo=",
+    "data:image/png;base64,",
+    "data:image/png;base64,AAAA===",
+    "httpx://example.com/a.png",
+  ])("rejects a malformed url: %j", (url) => {
+    expect(ImagePartSchema.safeParse(image(url)).success).toBe(false);
+    expect(UserContentPartSchema.safeParse(image(url)).success).toBe(false);
+    expect(UserMessageSchema.safeParse({ role: "user", content: [image(url)] }).success).toBe(false);
+  });
+
   it("says the url is not allowed", () => {
     for (const url of ["javascript:alert(1)", "data:text/plain;base64,aGk=", "/a.png"]) {
       const parsed = ImagePartSchema.safeParse(image(url));
