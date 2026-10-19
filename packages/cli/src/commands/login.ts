@@ -28,6 +28,8 @@ export const KEY_PAGES: Record<string, string> = {
   vercel: "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
   anthropic: "https://platform.claude.com/settings/keys",
   "anthropic-aws": "https://platform.claude.com/docs/en/build-with-claude/claude-platform-on-aws",
+  google: "https://aistudio.google.com/apikey",
+  azure: "https://portal.azure.com/",
 };
 
 const KEY_LABELS: Record<string, string> = {
@@ -38,6 +40,8 @@ const KEY_LABELS: Record<string, string> = {
   vercel: "Vercel AI Gateway",
   anthropic: "Anthropic",
   "anthropic-aws": "Claude Platform on AWS",
+  google: "Google Gemini",
+  azure: "Azure OpenAI",
 };
 
 const OPTIONS = {

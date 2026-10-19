@@ -4,6 +4,8 @@ export type Preset = {
   requiresKey: boolean;
   /** Also needs `Credentials.workspaceId` (Claude Platform on AWS). */
   requiresWorkspace?: boolean;
+  /** The address comes only from `Credentials.baseURL`; `baseURL` here is empty. */
+  requiresBaseURL?: true;
   /** Wire format, so which adapter serves it; omitted means `"openai"` (chat completions). */
   api?: "openai" | "anthropic";
   /** How the server lists its models; omitted means `"openai"` (`GET /models`). */
@@ -30,4 +32,5 @@ export const PRESETS: Record<string, Preset> = {
     api: "anthropic",
     models: "anthropic",
   },
+  "openai-compatible": { baseURL: "", requiresKey: false, requiresBaseURL: true },
 };
