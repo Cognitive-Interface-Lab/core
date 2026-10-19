@@ -38,8 +38,14 @@ export const meta: RouteModule = {
         registry.list().map(async (id) => {
           const preset = Object.hasOwn(PRESETS, id) ? PRESETS[id] : undefined;
           const requiresKey = preset?.requiresKey ?? false;
-          const ready = requiresKey ? (await credentials.get(id)) !== undefined : true;
-          return { id, ready, requiresKey };
+          if (!requiresKey) return { id, ready: true, requiresKey };
+          try {
+            return { id, ready: (await credentials.get(id)) !== undefined, requiresKey };
+          } catch (error) {
+            // A sign-in that can't be read now (expired and not renewable, or renewal failing) is not ready.
+            if (CoreError.is(error)) return { id, ready: false, requiresKey };
+            throw error;
+          }
         }),
       );
       const body: ProvidersResponse = { providers };
