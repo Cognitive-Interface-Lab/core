@@ -164,11 +164,18 @@ async function obtain(provider: string, flags: Flags, io: Io, signal: AbortSigna
     return { kind: "api-key", apiKey, baseURL };
   }
   if (provider === "azure") {
-    const baseURL = azureEndpoint(await io.prompt.line("Azure OpenAI endpoint (https://<resource>.openai.azure.com/openai): "));
+    const baseURL = azureEndpoint(await io.prompt.line("Azure OpenAI endpoint (as the Azure portal shows it, https://<resource>.openai.azure.com/): "));
     const apiKey = requiredKey(await io.prompt.secret("Azure OpenAI API key: "), "an API key is required");
     return { kind: "api-key", apiKey, baseURL };
   }
-  const label = provider === "openrouter" ? "OpenRouter" : provider === "anthropic" ? "Anthropic" : provider;
+  const label =
+    provider === "openrouter"
+      ? "OpenRouter"
+      : provider === "anthropic"
+        ? "Anthropic"
+        : provider === "google"
+          ? "Google Gemini"
+          : provider;
   return { kind: "api-key", apiKey: nonEmpty(await io.prompt.secret(`${label} API key: `)) };
 }
 
@@ -260,13 +267,17 @@ function compatibleBaseURL(value: string | undefined): string {
   return text;
 }
 
-/** An Azure OpenAI resource endpoint, which is always `https://`. */
+/**
+ * An Azure OpenAI resource endpoint, which is always `https://`, saved as its origin plus `/openai`
+ * (Trilix's rule): the portal's bare endpoint, the `/openai` form and a full deployment URL all
+ * give `https://<resource>.openai.azure.com/openai`, the address the Azure adapter expects.
+ */
 function azureEndpoint(value: string | undefined): string {
-  const text = nonEmpty(value);
-  if (parseUrl(text)?.protocol !== "https:") {
+  const url = parseUrl(nonEmpty(value));
+  if (url?.protocol !== "https:") {
     throw new UsageError("the Azure OpenAI endpoint must be an https:// URL, such as https://<resource>.openai.azure.com/openai");
   }
-  return text;
+  return `${url.origin}/openai`;
 }
 
 function parseUrl(text: string): URL | undefined {
