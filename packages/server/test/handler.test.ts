@@ -9,7 +9,13 @@ import {
   type ModelsResponse,
   type ProvidersResponse,
 } from "@core/contracts";
-import { MemoryCredentialStore, MockProvider, createPresetRegistry, type ModelProvider } from "@core/models";
+import {
+  MemoryCredentialStore,
+  MockProvider,
+  createPresetRegistry,
+  type CredentialStore,
+  type ModelProvider,
+} from "@core/models";
 import { errorResponse, readBody } from "../src/errors.js";
 import { httpStatus, type Middleware } from "../src/index.js";
 import { createTestHandler, createTestHandlerWith, del, get, post, readJson } from "./helpers.js";
@@ -96,6 +102,65 @@ describe("GET /v1/providers", () => {
       { id: "alpha", requiresKey: false, ready: true },
       { id: "zeta", requiresKey: false, ready: true },
     ]);
+  });
+
+  /** A store that answers from `inner` but throws `error` when asked for `failingId`. */
+  function storeThrowingFor(failingId: string, error: Error, inner: MemoryCredentialStore): CredentialStore {
+    return {
+      get: async (providerId) => {
+        if (providerId === failingId) throw error;
+        return inner.get(providerId);
+      },
+    };
+  }
+
+  it("reports a provider whose sign-in expired and could not be renewed as not ready, not as an error", async () => {
+    const store = storeThrowingFor(
+      "cloudflare",
+      new CoreError("auth", "cloudflare: the sign-in expired and could not be renewed; sign in again"),
+      new MemoryCredentialStore({ openai: { apiKey: "sk-test" } }),
+    );
+    const handler = createTestHandler({
+      credentialsFor: () => store,
+      registryFor: (credentials) => createPresetRegistry(credentials),
+    });
+    const response = await handler.fetch(get("/v1/providers"));
+    expect(response.status).toBe(200);
+    const { providers } = await readJson<ProvidersResponse>(response);
+    expect(providers.find((p) => p.id === "cloudflare")).toEqual({ id: "cloudflare", requiresKey: true, ready: false });
+    expect(providers.find((p) => p.id === "openai")).toEqual({ id: "openai", requiresKey: true, ready: true });
+  });
+
+  it("reports a provider whose sign-in cannot be renewed right now (unavailable) as not ready, not as an error", async () => {
+    const store = storeThrowingFor(
+      "cloudflare",
+      new CoreError("unavailable", "cloudflare: the sign-in could not be renewed right now"),
+      new MemoryCredentialStore({ openai: { apiKey: "sk-test" } }),
+    );
+    const handler = createTestHandler({
+      credentialsFor: () => store,
+      registryFor: (credentials) => createPresetRegistry(credentials),
+    });
+    const response = await handler.fetch(get("/v1/providers"));
+    expect(response.status).toBe(200);
+    const { providers } = await readJson<ProvidersResponse>(response);
+    expect(providers.find((p) => p.id === "cloudflare")).toEqual({ id: "cloudflare", requiresKey: true, ready: false });
+    expect(providers.find((p) => p.id === "openai")).toEqual({ id: "openai", requiresKey: true, ready: true });
+  });
+
+  it("answers 500 when the credential store fails with a non-CoreError", async () => {
+    const store = storeThrowingFor(
+      "cloudflare",
+      new Error("disk exploded"),
+      new MemoryCredentialStore({ openai: { apiKey: "sk-test" } }),
+    );
+    const handler = createTestHandler({
+      credentialsFor: () => store,
+      registryFor: (credentials) => createPresetRegistry(credentials),
+    });
+    const response = await handler.fetch(get("/v1/providers"));
+    expect(response.status).toBe(500);
+    expect((await readJson<ApiErrorBody>(response)).ok).toBe(false);
   });
 });
 
