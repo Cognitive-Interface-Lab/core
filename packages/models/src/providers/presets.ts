@@ -7,7 +7,7 @@ export type Preset = {
   /** The address comes only from `Credentials.baseURL`; `baseURL` here is empty. */
   requiresBaseURL?: true;
   /** Wire format, so which adapter serves it; omitted means `"openai"` (chat completions). */
-  api?: "openai" | "anthropic" | "google";
+  api?: "openai" | "anthropic" | "google" | "azure";
   /** How the server lists its models; omitted means `"openai"` (`GET /models`). */
   models?: "openai" | "cloudflare" | "anthropic";
 };
@@ -34,4 +34,5 @@ export const PRESETS: Record<string, Preset> = {
   },
   "openai-compatible": { baseURL: "", requiresKey: false, requiresBaseURL: true },
   google: { baseURL: "https://generativelanguage.googleapis.com/v1beta", requiresKey: true, api: "google" },
+  azure: { baseURL: "", requiresKey: true, requiresBaseURL: true, api: "azure" },
 };
