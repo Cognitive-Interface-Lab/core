@@ -13,7 +13,8 @@ Trilix's web UI, Orbit (CLI, voice, phone) and future experiments are thin clien
 | `@core/credentials` | Saved provider sign-ins: OS keychain or a private file, browser sign-in, token renewal (M2b) |
 | `@core/cli` | The `core` command: sign in to providers, then ask or chat from any terminal (M2b) |
 | `@core/graph` | Process graph: branch, fork, merge, cross-reference on an append-only event log (M3) |
-| `@core/server` | HTTP API with OpenAPI, MCP endpoint, auth; standalone or mounted in Next.js (M4) |
+| `@core/server` | HTTP API with OpenAPI, and the local bridge behind `core serve`; mounted in another app's server too (M4) |
+| `@core/client` | TypeScript client for the HTTP API, for browsers and Node; checks every answer (M4) |
 
 ## Use it from the terminal
 
@@ -77,6 +78,105 @@ Let Tab complete commands, options, provider names, config keys and Ollama model
     core completion bash > ~/.local/share/bash-completion/completions/core
 
 Open a new terminal, then try `core lo<Tab>` or `core config set route <Tab>`. Model names come from your local Ollama only: completion never contacts remote providers or opens the keychain, and if Ollama doesn't answer within 1.5 s it offers no model names, so Tab never hangs. Run the install line again after updating core.
+
+## Let websites and programs use core
+
+`core serve` answers core's HTTP API on this machine, for websites you pair and for programs running here. It uses your saved sign-ins and the route you set with `core config set route`:
+
+    core serve                     # http://127.0.0.1:8977
+    core serve --port 9000
+
+On start it prints the address, the sites already paired and where programs find their token. Ctrl+C stops it. It listens on 127.0.0.1 only, and it answers only requests addressed to `127.0.0.1:<port>` or `localhost:<port>`, so a site cannot reach it by pointing its own domain name at this machine.
+
+### Pairing a website
+
+A website that wants to use your core shows you a six-character code and asks to pair. The terminal running `core serve` asks:
+
+    https://app.example.com asks to use core on this machine as "Example". Check that it shows the code K7PX2M. Allow? [y/N]
+
+Answer `y` only if the site shows the same code. Any other answer denies it, and that site must wait 60 s before it asks again. One site can ask at a time, and an unanswered request ends after 120 s. Without a terminal, every request is refused. Only https sites, and http pages on `localhost` or `127.0.0.1`, may ask.
+
+A paired site gets its own token, and core stores only its hash. Browsers can read core's answers only on paired sites; any other site may only ask to pair. To forget a site:
+
+    core unpair https://app.example.com
+
+This works at once, even while `core serve` runs. A site can also unpair itself.
+
+Chrome, Edge and other Chromium browsers ask you once whether the site may reach this machine. Safari blocks https pages from calling `http://127.0.0.1` (WebKit bug 279249), so on Safari a site can't use your local core.
+
+### Calling core serve from a program
+
+A program on this machine sends the token from `serve-token` in core's config folder (`~/.config/core`, or `$CORE_CONFIG_DIR`). `core serve` creates the file on first start, readable only by you, and refuses to start if other users can read it:
+
+    TOKEN=$(cat ~/.config/core/serve-token)
+    curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8977/v1/providers
+    curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+      -d '{"messages":[{"role":"user","content":"hello"}]}' http://127.0.0.1:8977/v1/chat
+
+A request without an `Origin` header counts as a program. One that sends `Origin` is treated as a website and must be paired.
+
+### The HTTP API
+
+`core serve` and an app that mounts core in its own server (Trilix, in a Next.js route) answer the same API. `GET /v1/openapi.json` describes it (OpenAPI 3.1). It and `GET /v1/health` need no token, though `core serve` still turns away unpaired websites.
+
+| Route | Answer |
+|---|---|
+| `GET /v1/health`, `GET /v1/providers`, `GET /v1/models?provider=<id>` | The version and mode; each provider and whether it is ready to use; a provider's models |
+| `POST /v1/chat` | The same result as `core ask --json`, also when the models fail |
+| `POST /v1/turns` | A turn as a `text/event-stream` of events: text deltas, tool calls, rounds, then `turn-finish` |
+| `GET /v1/graphs`, `POST /v1/graphs`, `GET /v1/graphs/:id`, `GET /v1/graphs/:id/events?after=<seq>` | List, create and read process graphs and their events |
+| `POST /v1/graphs/:id/<action>`, where `<action>` is `branches`, `messages`, `turns`, `turn-records`, `merges`, `cross-references` or `forks` | Change a graph; `turns` streams a turn and records it on a branch |
+| `POST /v1/pair`, `DELETE /v1/pair` | Pair and unpair a website (`core serve` only) |
+
+POST bodies are JSON, at most 4 MiB. A failure answers `{"ok":false,"error":{"code":…,"message":…,"retryable":…}}` with a status for its code: `bad_request` 400, `auth` 401, `not_found` 404, `conflict` 409, `content_filter` 422, `rate_limit` 429, `aborted` 499, `unknown` 500, `unavailable` 503, `timeout` 504. `core serve` adds 403 for an unpaired website and 421 for a request addressed to another host.
+
+To mount the API in your own server, `createCoreHandler` from `@core/server` returns a `fetch(request)` handler. You decide who is asking and whose sign-ins a request uses:
+
+```ts
+import { createCoreHandler } from "@core/server";
+
+const core = createCoreHandler({
+  mode: "hosted",
+  version: "1.0.0",
+  basePath: "/api/core",
+  authenticate: async (request) => principalFromSession(request), // { id, channel: "web" }, or null for a 401
+  credentialsFor: (principal, request) => credentialsFor(request), // a CredentialStore from @core/models
+  // graph: { store, access },  // serves the graph routes; without it they answer 404
+});
+
+// app/api/core/[...path]/route.ts in Next.js
+export const GET = (request: Request) => core.fetch(request);
+export const POST = GET;
+export const DELETE = GET;
+```
+
+### The TypeScript client
+
+`@core/client` calls the API from a browser or Node. It depends only on `@core/contracts`, and it checks every answer and every streamed event against its schema:
+
+```ts
+import { createCoreClient } from "@core/client";
+
+const core = createCoreClient({ baseUrl: "http://127.0.0.1:8977", token });
+
+const answer = await core.chat({ messages: [{ role: "user", content: "hello" }] });
+if (answer.ok) console.log(answer.text);
+
+for await (const event of core.turn({ messages: [{ role: "user", content: "hello" }] })) {
+  if (event.type === "text-delta") process.stdout.write(event.text);
+}
+```
+
+A website gets its token by pairing: it makes up the code (six characters from A–Z and 2–9, without I or O), shows it, and calls `core.pair({ code, name: "Example" })`, which answers `{ origin, token }` once you allow it. `core.unpair()` forgets it again. `core.graphs` has a method per graph route. Pass `{ signal }` to `chat`, `turn` and `graphs.turn` to cancel. Every failure is a `CoreError` from `@core/contracts`: `unavailable` when core can't be reached or stops answering partway through a stream, `aborted` when the signal fires, `unknown` for an answer that doesn't match its schema, and the server's own code otherwise. `headers` (a function, called on every request) and `credentials` serve an app that mounts core behind its own sign-in.
+
+### Packs for other projects
+
+Nothing is published to npm while core's name is still open. Instead, `pnpm pack:consumers` builds and packs the eight packages another project imports (`contracts`, `models`, `tools`, `graph`, `graph-postgres`, `runtime`, `server`, `client`) into `packs/`, with `packs/manifest.json` listing each one's name, version, file and SHA-256. `pnpm pack:consumers --check` also installs the tarballs into an empty project and imports every package.
+
+The other project copies the tarballs into its repository and installs them with `file:` dependencies, plus npm `overrides` so the packages find each other there too:
+
+    "dependencies": { "@core/client": "file:vendor/core/core-client-0.1.0.tgz" },
+    "overrides": { "@core/contracts": "file:vendor/core/core-contracts-0.1.0.tgz" }
 
 ## Roadmap
 
