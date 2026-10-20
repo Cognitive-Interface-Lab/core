@@ -1,3 +1,4 @@
+import { CoreError, type StoredCredential } from "@core/contracts";
 import { PRESETS } from "@core/models";
 import { loadConfig, splitRoute } from "../config.js";
 import { envSource, openGateway } from "../setup.js";
@@ -47,10 +48,9 @@ export const statusCommand: Command = {
     const config = await loadConfig(io.configDir);
     const { store, providers } = await openGateway(io, config);
 
-    const saved = new Map((await store.list()).map((summary) => [summary.providerId, summary]));
     const rows: [string, string][] = [];
     for (const provider of providers) {
-      rows.push([provider, await describe(provider, saved.get(provider), store, io)]);
+      rows.push([provider, await describe(provider, store, io)]);
     }
     const width = Math.max(...rows.map(([name]) => name.length));
     for (const [name, state] of rows) io.stdout.write(`${name.padEnd(width)}  ${state}\n`);
@@ -66,20 +66,21 @@ export const statusCommand: Command = {
 
 async function describe(
   provider: string,
-  summary:
-    | {
-        kind: "api-key" | "oauth";
-        accountId?: string | undefined;
-        region?: string | undefined;
-        workspaceId?: string | undefined;
-        expiresAt?: number | undefined;
-      }
-    | undefined,
-  store: { read(providerId: string): Promise<{ kind: string; refreshToken?: string } | undefined> },
+  store: { read(providerId: string): Promise<StoredCredential | undefined> },
   io: Io,
 ): Promise<string> {
   const variable = envSource(io.env, provider);
   if (variable) return `from ${variable}`;
+
+  // Each provider's own record only: the store also holds other secrets, such as core serve's pairing
+  // tokens, and one unreadable record must not hide the rest.
+  let summary: StoredCredential | undefined;
+  try {
+    summary = await store.read(provider);
+  } catch (error) {
+    if (CoreError.is(error) && error.code === "bad_request") return `saved sign-in unreadable (core logout ${provider})`;
+    throw error;
+  }
 
   if (summary?.kind === "api-key") {
     const parts = [
@@ -93,9 +94,9 @@ async function describe(
   if (summary?.kind === "oauth") {
     const account = summary.accountId ? `account ${summary.accountId}` : undefined;
     // Only the presence of a refresh token is looked at; its value is never kept or shown.
-    const renews = Boolean((await store.read(provider))?.refreshToken);
+    const renews = Boolean(summary.refreshToken);
     if (renews) return `signed in (${["browser", account, "renews automatically"].filter(Boolean).join(", ")})`;
-    const remainingMs = (summary.expiresAt ?? 0) - Date.now();
+    const remainingMs = summary.expiresAt - Date.now();
     if (remainingMs <= 0) return "sign-in expired";
     const minutes = Math.ceil(remainingMs / 60_000);
     return `signed in (${["browser", account, `expires in ${minutes} min`].filter(Boolean).join(", ")})`;
