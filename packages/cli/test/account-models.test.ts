@@ -224,12 +224,27 @@ describe("core status", () => {
     expect(await run(["status", "openai"], fake.io)).toBe(2);
   });
 
-  it("returns 1 and names the provider when a saved record is unreadable", async () => {
-    const { fake } = setup();
+  it("shows an unreadable saved record as such, and still lists the other providers", async () => {
+    const { fake, store } = setup();
     await fake.secrets.set("openrouter", "this is not json");
-    expect(await run(["status"], fake.io)).toBe(1);
-    expect(fake.stderr()).toContain("openrouter");
-    expect(fake.stderr()).toContain("sign in again");
+    await store.save("cloudflare", oauth());
+    expect(await run(["status"], fake.io)).toBe(0);
+    expect(lineFor(fake, "openrouter")).toBe(row("openrouter", "saved sign-in unreadable (core logout openrouter)"));
+    expect(lineFor(fake, "cloudflare")).toBe(row("cloudflare", "signed in (browser, account acct-1, renews automatically)"));
+    expect(lineFor(fake, "openai")).toBe(row("openai", "not signed in"));
+    expect(fake.stderr()).toBe("");
+  });
+
+  it("ignores other secrets in the store, such as core serve's pairing tokens", async () => {
+    const { fake, store } = setup();
+    const pairing = `serve-token-${"0".repeat(32)}`;
+    await fake.secrets.set(pairing, JSON.stringify({ origin: "https://example.com", hash: "pairing-hash-ccc" }));
+    await store.save("openrouter", { kind: "api-key", apiKey: "key-secret-111" });
+    expect(await run(["status"], fake.io)).toBe(0);
+    expect(lineFor(fake, "openrouter")).toBe(row("openrouter", "signed in (key)"));
+    expect(fake.stdout()).not.toContain("serve-token");
+    expect(fake.stderr()).toBe("");
+    expectNoSecrets(fake, ["key-secret-111", "pairing-hash-ccc"]);
   });
 
   it("returns 1 when the config file is invalid", async () => {
