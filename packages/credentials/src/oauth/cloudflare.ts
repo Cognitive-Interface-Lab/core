@@ -5,7 +5,8 @@ import { startCallbackServer } from "./loopback.js";
 import { createPkce, randomState } from "./pkce.js";
 import type { FlowOptions } from "./openrouter.js";
 
-export const CLOUDFLARE_DEFAULT_SCOPES = "account-settings.read ai.read ai.write";
+/** `offline_access` makes Cloudflare return a refresh token, so the sign-in renews itself instead of lapsing when the access token does. */
+export const CLOUDFLARE_DEFAULT_SCOPES = "account-settings.read ai.read ai.write offline_access";
 /** The owner registers `http://localhost:8976/oauth/callback` on the OAuth client, so the port is fixed. */
 export const CLOUDFLARE_CALLBACK_PORT = 8976;
 

@@ -292,7 +292,7 @@ describe("signInCloudflare", () => {
 
   it("pins the documented constants", () => {
     expect(CLOUDFLARE_CALLBACK_PORT).toBe(8976);
-    expect(CLOUDFLARE_DEFAULT_SCOPES).toBe("account-settings.read ai.read ai.write");
+    expect(CLOUDFLARE_DEFAULT_SCOPES).toBe("account-settings.read ai.read ai.write offline_access");
   });
 
   it("opens the auth page with the PKCE and state parameters and the default scopes", async () => {
