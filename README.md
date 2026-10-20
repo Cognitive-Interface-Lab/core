@@ -1,8 +1,18 @@
 # core
 
-Working name for the TypeScript backbone behind [Trilix](https://github.com/Cognitive-Interface-Lab/trilix) and the products built on it, such as [Orbit](https://github.com/Cognitive-Interface-Lab/orbit). The permanent name is still open.
+An open TypeScript backbone for products that use AI. It gives you one interface to many model providers, with fallback when one fails, plus tools and MCP, a conversation graph you can branch, merge and replay, and an HTTP API you can run on your own machine or mount in your app. It is the backbone behind [Trilix](https://trilix.theenigmax.com) and Orbit. "core" is a working name; the permanent one is still open.
 
-Trilix's web UI, Orbit (CLI, voice, phone) and future experiments are thin clients. The backbone owns the parts they share:
+## Three ways to use it
+
+**On your machine.** Build it once, sign in to a provider (`core login openrouter`, or use a local Ollama with no sign-in), then `core ask "hello"` or `core chat` from any terminal. Scripts can call `core ask --json`. Start at [Use it from the terminal](#use-it-from-the-terminal).
+
+**In your app.** Use the packages in your own server or Node code: `@core/models` sends a request to a provider and falls back to the next one when it fails, `@core/runtime` runs a turn with tool calls, and `@core/graph` keeps conversations you can branch and replay. The [examples](examples/) show each one and need no keys. Or mount core's whole HTTP API in your server with `createCoreHandler` and call it from your front end with `@core/client`; your app decides who is asking and whose keys pay ([The HTTP API](#the-http-api)). Until core is on npm, another project installs it from packs ([Packs for other projects](#packs-for-other-projects)).
+
+**Your website, your visitor's machine.** Your visitor runs `core serve` on their computer. Your site shows a six-character code and calls `pair`, and the visitor allows it in their terminal after checking the code. From then on your site calls core on their machine with its own token: models answer with the visitor's own sign-ins, their keys never leave their computer, and you pay nothing for their model use. Chrome, Edge and other Chromium browsers support this; Safari doesn't. Start at [Let websites and programs use core](#let-websites-and-programs-use-core).
+
+Found a bug, or missing a provider? Issues and pull requests are welcome.
+
+## Packages
 
 | Package | Job |
 |---|---|
