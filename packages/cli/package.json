@@ -2,6 +2,17 @@
   "name": "@core/cli",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "The core command: sign in to providers, then ask or chat from any terminal",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cognitive-Interface-Lab/core.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/Cognitive-Interface-Lab/core#readme",
+  "bugs": "https://github.com/Cognitive-Interface-Lab/core/issues",
+  "engines": {
+    "node": ">=22"
+  },
   "private": true,
   "type": "module",
   "bin": {
@@ -11,6 +22,7 @@
     "dist"
   ],
   "scripts": {
+    "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsdown src/main.ts --format esm --clean --no-fixed-extension",
     "start": "node --conditions=@core/source --import tsx src/main.ts",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."

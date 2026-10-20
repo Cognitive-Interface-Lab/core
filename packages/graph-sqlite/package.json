@@ -2,6 +2,14 @@
   "name": "@core/graph-sqlite",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "SQLite store for core's process graph, built on node:sqlite",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cognitive-Interface-Lab/core.git",
+    "directory": "packages/graph-sqlite"
+  },
+  "homepage": "https://github.com/Cognitive-Interface-Lab/core#readme",
+  "bugs": "https://github.com/Cognitive-Interface-Lab/core/issues",
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -17,6 +25,7 @@
     "dist"
   ],
   "scripts": {
+    "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsdown src/index.ts --format esm --dts --clean --no-fixed-extension",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },

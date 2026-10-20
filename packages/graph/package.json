@@ -2,6 +2,17 @@
   "name": "@core/graph",
   "version": "0.1.0",
   "license": "MIT",
+  "description": "Process graph: branch, fork, merge and cross-reference conversations on an append-only event log",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cognitive-Interface-Lab/core.git",
+    "directory": "packages/graph"
+  },
+  "homepage": "https://github.com/Cognitive-Interface-Lab/core#readme",
+  "bugs": "https://github.com/Cognitive-Interface-Lab/core/issues",
+  "engines": {
+    "node": ">=22"
+  },
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,6 +34,7 @@
     "dist"
   ],
   "scripts": {
+    "prepack": "node ../../scripts/copy-license.mjs",
     "build": "tsdown src/index.ts src/testing/store-contract.ts --format esm --dts --clean --no-fixed-extension",
     "typecheck": "node ../../node_modules/typescript-7/bin/tsc --noEmit -p ."
   },
