@@ -201,3 +201,7 @@ Every milestone ends with something runnable.
 | M6 Orbit on core | Orbit's brief, voice and phone run on the backbone |
 
 See `docs/architecture.md` for the design and the decision log, and `AGENTS.md` for how to work in this repo.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
