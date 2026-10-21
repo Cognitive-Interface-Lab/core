@@ -1,10 +1,11 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 // A test run uses at most two cores (owner, 2026-10-17 and 2026-10-18). `maxWorkers` caps the test
 // workers, but vitest's own process, its bundler and anything a test spawns run beside them. So on
 // Linux the whole run is also pinned to two CPUs: workers and child processes inherit the pin.
+// `pnpm test` adds the memory cap, low CPU weight and machine-wide slot (scripts/test.sh).
 const TEST_CORES = 2;
 pinToCores(TEST_CORES);
 
@@ -43,5 +44,13 @@ export default defineConfig({
     include: ["packages/*/test/**/*.test.ts", "examples/*/test/**/*.test.ts"],
     passWithNoTests: true,
     maxWorkers: TEST_CORES,
+    // `pnpm test:changed` follows the import graph. These files sit outside it, so a change to one
+    // reruns everything. Vitest matches them against absolute paths, hence the `**/` prefix.
+    forceRerunTriggers: [
+      ...configDefaults.forceRerunTriggers,
+      "**/pnpm-lock.yaml",
+      "**/pnpm-workspace.yaml",
+      "**/tsconfig*.json",
+    ],
   },
 });

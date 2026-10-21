@@ -7,6 +7,7 @@
     corepack enable            # or: npm i -g pnpm@12 when corepack is unavailable
     pnpm install
     pnpm gate                  # the compact verification gate: typecheck, lint, tests (failures only)
+    pnpm test:changed          # only the tests your change reaches; the gate still runs them all
     pnpm build
 
 Run `pnpm gate` before every hand-over. Never paste raw compiler or test output into issues or context; the gate prints only failures.
